@@ -63,8 +63,13 @@ class HistoryStore:
     # ------------------------------------------------------------------ #
     @contextmanager
     def _connect(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        # WAL lets concurrent readers (the sync history endpoints) and the single
+        # writer (the scan loop) proceed without "database is locked"; the busy
+        # timeout waits on contention instead of raising.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         try:
             yield conn
         finally:

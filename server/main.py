@@ -56,6 +56,11 @@ history = HistoryStore()
 _scan_paused = asyncio.Event()
 _scan_paused.set()  # running by default
 
+# Serializes all executor + persistence mutations. The scan loop (event-loop
+# thread) and the control endpoints must not interleave writes to the shared
+# PaperExecutor, whose position list and state file are not otherwise guarded.
+_exec_lock = asyncio.Lock()
+
 # Track which positions have been journaled so we only record opens once.
 _logged_positions: set[str] = set()
 _closed_trade_ids: set[str] = set()
@@ -106,9 +111,13 @@ async def broadcast(msg_type: str, data) -> None:
     dead = []
     payload = json.dumps({"type": msg_type, "data": data, "ts": utcnow_iso()},
                          default=str)
-    for ws in _sockets:
+    # Snapshot the set: ws_endpoint may add/discard sockets during the awaits
+    # below, and mutating a set mid-iteration raises RuntimeError and aborts the
+    # whole broadcast. A per-send timeout stops one slow/half-open client from
+    # head-of-line-blocking the fan-out (and the scan loop that awaits it).
+    for ws in list(_sockets):
         try:
-            await ws.send_text(payload)
+            await asyncio.wait_for(ws.send_text(payload), timeout=5.0)
         except Exception:
             dead.append(ws)
     for ws in dead:
@@ -210,55 +219,58 @@ async def scan_loop() -> None:
 
                 await broadcast("scan", result)
 
-                # advance open positions on their newest CLOSED candle
-                for pos in list(executor.open_positions()):
-                    try:
-                        df = await feed.fetch_ohlcv(pos.symbol, pos.timeframe, 3)
-                    except Exception:
-                        continue
-                    if df is None or len(df) < 2:
-                        continue
-                    bar, ts = df.iloc[-2], str(df.index[-2])
-                    if _seen_candle.get(pos.id) == ts:
-                        continue
-                    _seen_candle[pos.id] = ts
-                    executor.update_with_candle(
-                        pos.symbol, ts, float(bar["open"]), float(bar["high"]),
-                        float(bar["low"]), float(bar["close"]))
+                # All executor mutations run under the lock so a concurrent
+                # /close or pause/resume cannot interleave with the scan loop's
+                # position advance / open / save sequence.
+                async with _exec_lock:
+                    # advance open positions on their newest CLOSED candle
+                    for pos in list(executor.open_positions()):
+                        try:
+                            df = await feed.fetch_ohlcv(pos.symbol, pos.timeframe, 3)
+                        except Exception:
+                            continue
+                        if df is None or len(df) < 2:
+                            continue
+                        bar, ts = df.iloc[-2], str(df.index[-2])
+                        if _seen_candle.get(pos.id) == ts:
+                            continue
+                        _seen_candle[pos.id] = ts
+                        executor.update_with_candle(
+                            pos.symbol, ts, float(bar["open"]), float(bar["high"]),
+                            float(bar["low"]), float(bar["close"]))
 
-                # journal any closes that happened during this candle step
-                _record_closed_positions()
+                    # journal any closes that happened during this candle step
+                    _record_closed_positions()
 
-                # ---- open new plans -----------------------------------------
-                for plan in plans:
-                    pos_id = trade_exec.open_position(plan)
-                    if pos_id and pos_id not in _logged_positions:
-                        _logged_positions.add(pos_id)
-                        signal_id = signal_ids.get(plan.symbol)
-                        trade_id = history.record_trade(
-                            scan_id=scan_id,
-                            signal_id=signal_id,
-                            trade=TradeHistory(
-                                symbol=plan.symbol,
-                                side=plan.side,
-                                entry=float(plan.entry),
-                                stop=float(plan.stop_loss),
-                                qty=float(plan.qty),
-                                leverage=float(plan.leverage),
-                                margin=float(plan.margin),
-                                timestamp=result.get("scanned_at"),
-                            ),
-                        )
-                        _trade_id_by_pos[pos_id] = trade_id
-                        _risk_amount_by_trade[trade_id] = float(plan.risk_amount)
-                        _fees_estimate_by_trade[trade_id] = float(plan.fees_estimate)
+                    # ---- open new plans -------------------------------------
+                    for plan in plans:
+                        pos_id = trade_exec.open_position(plan)
+                        if pos_id and pos_id not in _logged_positions:
+                            _logged_positions.add(pos_id)
+                            signal_id = signal_ids.get(plan.symbol)
+                            trade_id = history.record_trade(
+                                scan_id=scan_id,
+                                signal_id=signal_id,
+                                trade=TradeHistory(
+                                    symbol=plan.symbol,
+                                    side=plan.side,
+                                    entry=float(plan.entry),
+                                    stop=float(plan.stop_loss),
+                                    qty=float(plan.qty),
+                                    leverage=float(plan.leverage),
+                                    margin=float(plan.margin),
+                                    timestamp=result.get("scanned_at"),
+                                ),
+                            )
+                            _trade_id_by_pos[pos_id] = trade_id
+                            _risk_amount_by_trade[trade_id] = float(plan.risk_amount)
+                            _fees_estimate_by_trade[trade_id] = float(plan.fees_estimate)
 
-                # journal closes that were triggered by open_position rejections
-                # (e.g. circuit breakers closing existing positions) or by the
-                # ladder finalization above.
-                _record_closed_positions()
+                    # journal closes triggered by open_position rejections (e.g.
+                    # circuit breakers closing positions) or ladder finalization.
+                    _record_closed_positions()
 
-                executor.save()
+                    executor.save()
                 await broadcast("positions", executor.state_dict())
                 exposure_corr = await _correlation_matrix_for(executor.open_positions())
                 await broadcast("exposure", ExposureAnalyzer.analyze(
@@ -509,26 +521,31 @@ def api_health():
     }
 
 
+# These are async (not sync `def`) so they run on the event-loop thread rather
+# than a worker thread: an asyncio.Event and the PaperExecutor are not
+# thread-safe, and mutating them from the threadpool races the loop.
 @app.post("/api/control/pause")
-def api_control_pause():
+async def api_control_pause():
     _scan_paused.clear()
     return {"paused": True}
 
 
 @app.post("/api/control/resume")
-def api_control_resume():
+async def api_control_resume():
     _scan_paused.set()
     return {"paused": False}
 
 
 @app.post("/api/positions/{symbol:path}/close")
-def api_close_position(symbol: str):
-    pos = next((p for p in executor.open_positions() if p.symbol == symbol), None)
-    if pos is None:
-        return JSONResponse({"error": f"no open position for {symbol}"}, status_code=404)
-    price = pos.last_price if pos.last_price else pos.entry
-    executor.close_position(pos.id, float(price), "api_close")
-    executor.save()
+async def api_close_position(symbol: str):
+    async with _exec_lock:
+        pos = next((p for p in executor.open_positions() if p.symbol == symbol), None)
+        if pos is None:
+            return JSONResponse({"error": f"no open position for {symbol}"},
+                                status_code=404)
+        price = pos.last_price if pos.last_price else pos.entry
+        executor.close_position(pos.id, float(price), "api_close")
+        executor.save()
     return {"status": "closed", "symbol": symbol, "price": price}
 
 
@@ -588,8 +605,13 @@ if os.path.isdir(DIST):
 
     @app.get("/{path:path}")
     def spa(path: str):
-        target = os.path.join(DIST, path)
-        if path and os.path.isfile(target):
+        # Confine to DIST: a non-normalizing client (e.g. curl --path-as-is) could
+        # otherwise request ../../ to read arbitrary files off a process that
+        # holds exchange API keys. Serve index.html for anything outside DIST.
+        target = os.path.realpath(os.path.join(DIST, path))
+        dist_real = os.path.realpath(DIST)
+        if (path and (target == dist_real or target.startswith(dist_real + os.sep))
+                and os.path.isfile(target)):
             return FileResponse(target)
         return FileResponse(os.path.join(DIST, "index.html"))
 else:
