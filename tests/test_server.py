@@ -118,3 +118,35 @@ def test_close_position_endpoint(client, monkeypatch, tmp_path):
 def test_close_position_not_found(client):
     resp = client.post("/api/positions/NOSUCH/USDT/close")
     assert resp.status_code == 404
+
+
+def test_trade_links_persist_across_restart(tmp_path, monkeypatch):
+    """The pos_id -> trade_id linkage must survive a restart, or a restored
+    position's close is never journaled and its trade row stays 'open' forever."""
+    monkeypatch.setattr(main, "_TRADE_LINKS_PATH", str(tmp_path / "links.json"))
+    orig = (dict(main._trade_id_by_pos), dict(main._risk_amount_by_trade),
+            dict(main._fees_estimate_by_trade), set(main._logged_positions),
+            set(main._closed_trade_ids))
+    try:
+        main._trade_id_by_pos.clear(); main._trade_id_by_pos["posABC"] = 42
+        main._risk_amount_by_trade.clear(); main._risk_amount_by_trade[42] = 100.0
+        main._fees_estimate_by_trade.clear(); main._fees_estimate_by_trade[42] = 1.5
+        main._logged_positions.clear(); main._logged_positions.add("posABC")
+        main._save_trade_links()
+
+        # Simulate a restart: wipe the in-memory maps, reload from disk.
+        main._trade_id_by_pos.clear(); main._risk_amount_by_trade.clear()
+        main._fees_estimate_by_trade.clear(); main._logged_positions.clear()
+        main._load_trade_links()
+
+        assert main._trade_id_by_pos == {"posABC": 42}
+        assert main._risk_amount_by_trade == {42: 100.0}   # int key restored (JSON quirk)
+        assert main._fees_estimate_by_trade == {42: 1.5}
+        assert "posABC" in main._logged_positions
+    finally:
+        for target, saved in zip(
+                (main._trade_id_by_pos, main._risk_amount_by_trade,
+                 main._fees_estimate_by_trade, main._logged_positions,
+                 main._closed_trade_ids), orig):
+            target.clear()
+            target.update(saved)

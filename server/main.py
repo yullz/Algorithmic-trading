@@ -68,6 +68,43 @@ _trade_id_by_pos: dict[str, int] = {}
 _risk_amount_by_trade: dict[int, float] = {}
 _fees_estimate_by_trade: dict[int, float] = {}
 
+_TRADE_LINKS_PATH = "reports/trade_links.json"
+
+
+def _save_trade_links() -> None:
+    """Persist the pos_id -> trade_id linkage. Without this, a restart starts
+    these maps empty while PaperExecutor restores its open positions from disk,
+    so when a restored position later closes _record_closed_positions can't find
+    its trade row and it stays 'open' forever — silently corrupting the ledger
+    the dashboard and win-rate summaries read from."""
+    write_json(_TRADE_LINKS_PATH, {
+        "trade_id_by_pos": _trade_id_by_pos,
+        "risk_amount_by_trade": {str(k): v for k, v in _risk_amount_by_trade.items()},
+        "fees_estimate_by_trade": {str(k): v for k, v in _fees_estimate_by_trade.items()},
+        "logged_positions": list(_logged_positions),
+        "closed_trade_ids": list(_closed_trade_ids),
+    })
+
+
+def _load_trade_links() -> None:
+    s = read_json(_TRADE_LINKS_PATH)
+    if not s:
+        return
+    try:
+        _trade_id_by_pos.update(
+            {k: int(v) for k, v in s.get("trade_id_by_pos", {}).items()})
+        _risk_amount_by_trade.update(
+            {int(k): float(v) for k, v in s.get("risk_amount_by_trade", {}).items()})
+        _fees_estimate_by_trade.update(
+            {int(k): float(v) for k, v in s.get("fees_estimate_by_trade", {}).items()})
+        _logged_positions.update(s.get("logged_positions", []))
+        _closed_trade_ids.update(s.get("closed_trade_ids", []))
+    except (TypeError, ValueError):
+        pass
+
+
+_load_trade_links()
+
 _BTC = "BTC/USDT:USDT"
 
 
@@ -271,6 +308,7 @@ async def scan_loop() -> None:
                     _record_closed_positions()
 
                     executor.save()
+                    _save_trade_links()  # durable pos_id -> trade_id linkage
                 await broadcast("positions", executor.state_dict())
                 exposure_corr = await _correlation_matrix_for(executor.open_positions())
                 await broadcast("exposure", ExposureAnalyzer.analyze(
