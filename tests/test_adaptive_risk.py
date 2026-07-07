@@ -222,3 +222,22 @@ def test_liquidation_safety_invariant_with_adaptive_sizing():
             assert not RiskManager._liq_before_stop(
                 plan.side, plan.liquidation_price, plan.stop_loss
             )
+
+
+def test_volatile_regime_risk_amount_is_true_dollar_risk():
+    """risk_amount must equal the TRUE dollar risk (qty*stop_dist) AFTER the
+    volatile-regime haircut, not the pre-haircut target. Otherwise it overstates
+    risk by 1/regime_mult and corrupts fees_r, EV, and realized-R -> calibration."""
+    cfg = RiskConfig(account_equity=10_000.0, risk_per_trade_pct=0.01,
+                     max_margin_alloc_pct=0.80, volatile_regime_size_factor=0.7)
+    rm = RiskManager(cfg)
+    normal = rm.build_plan(_signal(regime="range"))       # regime_mult = 1.0
+    volatile = rm.build_plan(_signal(regime="volatile"))  # regime_mult = 0.7
+    stop_dist = 1.0  # entry 100, stop 99
+
+    # Internally consistent: reported risk == qty * stop distance.
+    assert normal.risk_amount == pytest.approx(normal.qty * stop_dist)
+    assert volatile.risk_amount == pytest.approx(volatile.qty * stop_dist)
+    # The 0.7 haircut is reflected in BOTH qty and the reported risk.
+    assert volatile.qty == pytest.approx(normal.qty * 0.7)
+    assert volatile.risk_amount == pytest.approx(10_000 * 0.01 * 0.7)

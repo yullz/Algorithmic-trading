@@ -125,6 +125,12 @@ class RiskManager:
         # ---- position sizing (risk to the stop)
         risk_amount = equity * effective_risk_pct
         qty = (risk_amount / stop_dist) * regime_mult
+        # True dollar risk is qty * stop_dist AFTER every size scaling (the
+        # regime haircut here, the margin-cap shrink below). Recompute it so
+        # risk_amount does not overstate risk by 1/regime_mult in volatile
+        # regimes — that stale value would corrupt fees_r, EV, the reported
+        # risk, and the realized-R that feeds calibration and Kelly sizing.
+        risk_amount = qty * stop_dist
         notional = qty * entry
         margin = notional / lev
 
