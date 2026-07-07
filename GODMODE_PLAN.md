@@ -36,10 +36,15 @@
   - **P2d (breadth)** (`0303175`): `indicators/breadth.py` — universe risk-on/off (% above EMA50/EMA200,
     adv/decline) surfaced in the scan output and used as a bounded ±10% ranking tilt. Deliberately a
     selection-time tilt, NOT per-symbol evidence (avoids re-introducing the P1c skew). Tests → 131.
-  - **Remaining Phase 2:** derivatives z-score / basis evidence (**P2d-deriv**) → deferred to **Phase 3**
-    (needs historical funding/OI plumbed into the backtest so it calibrates, instead of firing live-only);
-    cross-sectional rank/z-score features (**P2b**, needs timestamp-aligned universe layout); pattern
-    hardening (**P2f**: fresh-break gating, high/low pivots, volume confirmation).
+  - **P2f (fresh-break gating)** (`ac823b9`): 16 breakout/reversal chart-pattern detectors no longer
+    re-fire every bar — a new `_fresh_break()` guard requires the prior bar on the wrong side of the level.
+    Stops stale repeats from inflating confluence and polluting calibration. Tests → 133.
+  - **Remaining Phase 2:** derivatives z-score / basis evidence (**P2d-deriv**) → **Phase 3** (needs
+    historical funding/OI in the backtest so it calibrates, not live-only); cross-sectional rank/z-score
+    features (**P2b**, needs timestamp-aligned universe layout); remaining pattern hardening (high/low
+    fractal pivots, breakout volume confirmation).
+
+**Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
 ---
 
