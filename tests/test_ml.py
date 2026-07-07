@@ -340,3 +340,90 @@ def test_reward_head_trains_persists_and_loads(tmp_path):
 
     mm = MetaModel.load(str(out), min_training_trades=10)
     assert mm is not None and mm.reward_available is True
+
+
+# --------------------------------------------------------------------------- #
+# Reward head is usable independently of the P(win) head's trust
+# --------------------------------------------------------------------------- #
+class _StubClf:
+    def predict_proba(self, X):
+        return np.tile([0.4, 0.6], (len(X), 1))
+
+
+class _StubReg:
+    def predict(self, X):
+        return np.full(len(X), 0.8)
+
+
+def _reward_only_meta(reward_trusted: bool) -> dict:
+    # auc 0.50 + brier == baseline -> P(win) head weight is 0 (untrusted).
+    return {
+        "feature_columns": ["confidence", "score", "n_families", "stop_pct",
+                            "side", "rule_win_rate"],
+        "auc_valid": 0.50, "brier_valid": 0.25, "brier_baseline": 0.25,
+        "n_train": 800, "min_trades": 300, "reward_trusted": reward_trusted,
+    }
+
+
+def _predict(mm):
+    from types import SimpleNamespace
+    return mm.predict_for_signal(
+        evidence=[], agg={"confidence": 0.7, "score": 1.0, "n_families": 2,
+                          "kind": SimpleNamespace(value="breakout")},
+        regime="range", timeframe="1h", rule_win_rate=0.5, stop_pct=0.02,
+        side_sign=1, entry_time="2024-01-01")
+
+
+def test_reward_head_lights_up_when_pwin_head_is_untrusted():
+    """A trusted reward head must still produce E[R] even though the P(win) head
+    is too weak to enter the blend (weight 0). This decoupling is what makes the
+    dashboard's E[R] panel light up on a reward-only model."""
+    mm = MetaModel(_StubClf(), _reward_only_meta(reward_trusted=True),
+                   reward_model=_StubReg())
+    assert mm.weight == 0.0                 # P(win) head not in the blend
+    assert mm.reward_available is True
+    out = _predict(mm)
+    assert out is not None
+    prob, weight, contribs, ev_r = out
+    assert weight == 0.0                     # blend stays a no-op
+    assert ev_r == pytest.approx(0.8)        # reward head still speaks
+    assert contribs == []                    # no contribs for an unused P(win) prob
+
+
+def test_model_stays_out_when_neither_head_is_trusted():
+    mm = MetaModel(_StubClf(), _reward_only_meta(reward_trusted=False),
+                   reward_model=_StubReg())
+    assert mm.weight == 0.0 and mm.reward_available is False
+    assert _predict(mm) is None              # nothing trustworthy -> stay out
+
+
+def test_load_keeps_reward_only_model_alive(tmp_path):
+    """load() must NOT discard a model whose P(win) head is untrusted if its
+    reward head earned trust — otherwise E[R] can never surface live."""
+    rng = np.random.default_rng(99)
+    n = 450
+    score = rng.normal(0, 1, n)
+    r = score * 1.5 + rng.normal(0, 0.4, n)   # r is predictable from score
+    win = rng.integers(0, 2, n)               # win is pure noise -> P(win) untrusted
+    ds = pd.DataFrame({
+        "win": win, "r": r,
+        "confidence": rng.uniform(0.3, 0.9, n), "score": score,
+        "n_families": rng.integers(2, 5, n), "n_factors": rng.integers(2, 6, n),
+        "rule_win_rate": rng.uniform(0.4, 0.6, n), "stop_pct": rng.uniform(0.005, 0.05, n),
+        "side": rng.choice([1, -1], n),
+        "kind": rng.choice(
+            ["reversal", "continuation", "breakout", "momentum", "mean_reversion"], n),
+        "regime": rng.choice(["trend_up", "trend_down", "range", "volatile"], n),
+        "tf": rng.choice(["1h", "4h", "1d"], n),
+        "entry_time": pd.date_range("2024-01-01", periods=n, freq="h"),
+        "factor__ema_stack_bull": rng.uniform(0, 1, n),
+    })
+    ds_path = tmp_path / "ro.parquet"
+    out = tmp_path / "ro.pkl"
+    ds.to_parquet(ds_path)
+
+    meta = train.train(str(ds_path), str(out), min_trades=10)
+    assert meta["reward_trusted"] is True          # reward head earned trust
+    mm = MetaModel.load(str(out), min_training_trades=10)
+    assert mm is not None, "a reward-only model must stay alive, not run rules-only"
+    assert mm.reward_available is True

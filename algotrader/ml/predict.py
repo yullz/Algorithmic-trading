@@ -79,14 +79,20 @@ class MetaModel:
             if min_training_trades is not None:
                 meta["min_trades"] = min_training_trades
             mm = cls(model, meta, reward_model=reward_model)
-            if mm.weight <= 0:
-                log.warning("meta-model loaded but not trusted (n=%s, AUC=%s) — "
-                            "running rules-only", meta.get("n_train"),
-                            meta.get("auc_valid"))
+            # Keep the model alive if EITHER head earned trust: a trusted reward
+            # (E[R]) head is independently useful for ranking/display even when the
+            # P(win) head is too weak to enter the probability blend. Only run
+            # rules-only when neither head is trusted.
+            if mm.weight <= 0 and not mm.reward_available:
+                log.warning("meta-model loaded but neither head trusted (n=%s, AUC=%s, "
+                            "reward_trusted=%s) — running rules-only", meta.get("n_train"),
+                            meta.get("auc_valid"), meta.get("reward_trusted"))
                 return None
-            log.info("meta-model active: AUC=%.3f n=%d blend weight=%.0f%%",
-                     meta.get("auc_valid", 0.5), meta.get("n_train", 0),
-                     mm.weight * 100)
+            mode = ("blend+reward" if mm.weight > 0 and mm.reward_available
+                    else "blend" if mm.weight > 0 else "reward-only")
+            log.info("meta-model active (%s): AUC=%.3f n=%d P(win) weight=%.0f%% "
+                     "reward_trusted=%s", mode, meta.get("auc_valid", 0.5),
+                     meta.get("n_train", 0), mm.weight * 100, mm.reward_available)
             return mm
         except Exception as e:  # corrupt pickle, sklearn version drift, ...
             log.warning("failed to load meta-model (%s) — running rules-only", e)
@@ -101,7 +107,9 @@ class MetaModel:
                            numeric_context: Optional[dict] = None,
                            entry_time: Optional[str] = None,
                            ) -> Optional[tuple[float, float, list[str], Optional[float]]]:
-        if self.weight <= 0:
+        # Stay out only if NEITHER head can contribute. A trusted reward head is
+        # used for E[R] even when the P(win) head's blend weight is 0.
+        if self.weight <= 0 and not self.reward_available:
             return None
         cols = self.meta["feature_columns"]
         row = signal_row(
@@ -114,19 +122,23 @@ class MetaModel:
             atr_percentile=atr_percentile,
             numeric_context=numeric_context,
             entry_time=entry_time)
+        weight = self.weight
         try:
             prob = float(self.model.predict_proba(row)[0, 1])
         except Exception as e:
-            log.warning("meta-model predict failed (%s) — skipping", e)
-            return None
+            log.warning("meta-model predict failed (%s)", e)
+            if not self.reward_available:
+                return None
+            prob, weight = 0.5, 0.0  # neutral; reward-only mode ignores the blend
+        # Contributions only matter when the P(win) head is actually in the blend.
+        contribs = self._contributions(row, prob) if weight > 0 else []
         ev_r = None
         if self.reward_available and self.reward_model is not None:
             try:
                 ev_r = float(self.reward_model.predict(row)[0])
             except Exception:  # pragma: no cover - defensive
                 ev_r = None
-        contribs = self._contributions(row, prob)
-        return prob, self.weight, contribs, ev_r
+        return prob, weight, contribs, ev_r
 
     def drift_score(self, recent_predictions: list[float],
                     recent_outcomes: list[int]) -> Optional[float]:
