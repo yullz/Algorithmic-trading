@@ -653,7 +653,30 @@ async def api_candles(symbol: str, tf: str = "1h", limit: int = 300):
                   for p, t in get_sr_levels(df)]
     except Exception:
         pass
-    return {"symbol": symbol, "tf": tf, "candles": candles, "sr_levels": levels}
+
+    # Indicator overlays: the same series that produced the signal, so the chart
+    # visually justifies the thesis (EMA ribbon, VWAP, Bollinger band).
+    overlays: dict[str, list] = {}
+    try:
+        from algotrader.indicators.indicators import compute_all
+        indf = compute_all(df)
+        times = [int(ts.timestamp()) for ts in df.index]
+
+        def _series(col: str) -> list:
+            if col not in indf:
+                return []
+            out = []
+            for t, v in zip(times, indf[col]):
+                if v == v:  # skip NaN warmup
+                    out.append({"time": t, "value": float(v)})
+            return out
+
+        overlays = {k: _series(k) for k in
+                    ("ema20", "ema50", "ema200", "vwap", "bb_up", "bb_low")}
+    except Exception as e:
+        log.debug("candle overlays failed for %s: %s", symbol, e)
+    return {"symbol": symbol, "tf": tf, "candles": candles,
+            "sr_levels": levels, "overlays": overlays}
 
 
 @app.websocket("/ws")

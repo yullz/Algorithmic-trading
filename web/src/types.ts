@@ -183,11 +183,14 @@ export interface Candle {
   volume: number;
 }
 
+export type LinePoint = { time: number; value: number };
+
 export interface CandlesResponse {
   symbol: string;
   tf: string;
   candles: Candle[];
   sr_levels: { price: number; touches: number }[];
+  overlays?: Record<string, LinePoint[]>;
   error?: string;
 }
 

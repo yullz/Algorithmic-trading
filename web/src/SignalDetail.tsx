@@ -14,6 +14,11 @@ const CHART_SHORT = '#f43f5e';
 const CHART_PRIMARY = '#22d3ee';
 const CHART_SR = 'rgba(148,163,184,0.35)';
 const CHART_LIQ = '#be123c';
+const CHART_EMA20 = 'rgba(56,189,248,0.65)';
+const CHART_EMA50 = 'rgba(129,140,248,0.65)';
+const CHART_EMA200 = 'rgba(148,163,184,0.55)';
+const CHART_VWAP = 'rgba(251,191,36,0.8)';
+const CHART_BB = 'rgba(148,163,184,0.24)';
 
 export default function SignalDetail({ symbol, tf, plan, onClose }:
   { symbol: string; tf: string; plan?: Plan; onClose: () => void }) {
@@ -75,6 +80,28 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
       time: c.time as UTCTimestamp, value: c.volume,
       color: c.close >= c.open ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)',
     })));
+
+    // Indicator overlays (EMA ribbon, VWAP, Bollinger band) — the very series
+    // that produced the signal, drawn faint so the candles stay legible.
+    const addLine = (points: { time: number; value: number }[] | undefined,
+                     color: string, width = 1, style: LineStyle = LineStyle.Solid) => {
+      if (!points?.length) return;
+      const s = chart.addLineSeries({
+        color, lineWidth: width as 1 | 2 | 3, lineStyle: style,
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      s.setData(points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
+    };
+    const ov = data.overlays;
+    if (ov) {
+      addLine(ov.bb_up, CHART_BB);
+      addLine(ov.bb_low, CHART_BB);
+      addLine(ov.ema200, CHART_EMA200);
+      addLine(ov.ema50, CHART_EMA50);
+      addLine(ov.ema20, CHART_EMA20);
+      addLine(ov.vwap, CHART_VWAP, 1, LineStyle.Dashed);
+    }
 
     for (const lvl of data.sr_levels.slice(0, 8)) {
       candles.createPriceLine({
@@ -231,6 +258,11 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
 
 function ChartLegend() {
   const items = [
+    { color: CHART_EMA20, label: 'EMA20' },
+    { color: CHART_EMA50, label: 'EMA50' },
+    { color: CHART_EMA200, label: 'EMA200' },
+    { color: CHART_VWAP, label: 'VWAP', dashed: true },
+    { color: CHART_BB, label: 'Bollinger' },
     { color: CHART_PRIMARY, label: 'entry' },
     { color: CHART_SHORT, label: 'stop', dashed: true },
     { color: CHART_LONG, label: 'take profit', dashed: true },
