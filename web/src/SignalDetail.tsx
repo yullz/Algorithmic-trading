@@ -19,6 +19,7 @@ const CHART_EMA50 = 'rgba(129,140,248,0.65)';
 const CHART_EMA200 = 'rgba(148,163,184,0.55)';
 const CHART_VWAP = 'rgba(251,191,36,0.8)';
 const CHART_BB = 'rgba(148,163,184,0.24)';
+const CHART_RSI = 'rgba(168,139,250,0.9)';
 
 export default function SignalDetail({ symbol, tf, plan, onClose }:
   { symbol: string; tf: string; plan?: Plan; onClose: () => void }) {
@@ -101,6 +102,21 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
       addLine(ov.ema50, CHART_EMA50);
       addLine(ov.ema20, CHART_EMA20);
       addLine(ov.vwap, CHART_VWAP, 1, LineStyle.Dashed);
+    }
+
+    // RSI oscillator in its own sub-pane below price, with 30/70 guides.
+    if (ov?.rsi?.length) {
+      chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.04, bottom: 0.42 } });
+      const rsi = chart.addLineSeries({
+        color: CHART_RSI, lineWidth: 1, priceScaleId: 'rsi',
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      chart.priceScale('rsi').applyOptions({ scaleMargins: { top: 0.62, bottom: 0.2 } });
+      rsi.setData(ov.rsi.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
+      rsi.createPriceLine({ price: 70, color: 'rgba(244,63,94,0.4)', lineWidth: 1,
+        lineStyle: LineStyle.Dotted, title: 'RSI 70' });
+      rsi.createPriceLine({ price: 30, color: 'rgba(16,185,129,0.4)', lineWidth: 1,
+        lineStyle: LineStyle.Dotted, title: '30' });
     }
 
     for (const lvl of data.sr_levels.slice(0, 8)) {
@@ -263,6 +279,7 @@ function ChartLegend() {
     { color: CHART_EMA200, label: 'EMA200' },
     { color: CHART_VWAP, label: 'VWAP', dashed: true },
     { color: CHART_BB, label: 'Bollinger' },
+    { color: CHART_RSI, label: 'RSI' },
     { color: CHART_PRIMARY, label: 'entry' },
     { color: CHART_SHORT, label: 'stop', dashed: true },
     { color: CHART_LONG, label: 'take profit', dashed: true },

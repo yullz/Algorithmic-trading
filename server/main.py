@@ -672,7 +672,8 @@ async def api_candles(symbol: str, tf: str = "1h", limit: int = 300):
             return out
 
         overlays = {k: _series(k) for k in
-                    ("ema20", "ema50", "ema200", "vwap", "bb_up", "bb_low")}
+                    ("ema20", "ema50", "ema200", "vwap", "bb_up", "bb_low",
+                     "rsi", "macd_hist")}
     except Exception as e:
         log.debug("candle overlays failed for %s: %s", symbol, e)
     return {"symbol": symbol, "tf": tf, "candles": candles,
