@@ -54,13 +54,17 @@
   - **P3-risk-3** (`ae65860`): `portfolio_allows` now caps **total open risk-in-R** across the book
     (`max_portfolio_risk_pct`, default 6%) — bounds worst-case loss if correlated positions all stop
     together, which the margin/count caps missed.
-  - **Remaining Phase 3:** tiered maintenance-margin (per-symbol, needs live ccxt tiers) + funding in EV +
-    correlation-vs-open-book (needs return series threaded); ccxt.pro **WebSocket streaming feed** (live candles, freshness guard,
-    closed-candle signals); tiered maintenance-margin (flat 0.5% underestimates alt liquidation); funding
-    in EV; correlation / BTC-beta / gross-notional caps enforced against the OPEN book; server hardening
-    (async locks, WAL SQLite off-loop, bounded socket queues, persistent trade linkage, structured
-    explainability payload, typed WS events, price ticker); close the learning loop (drift → retrain).
-  - Tests → 136.
+  - **P3-server-1** (`ad311a5`): concurrency + security hardening — `broadcast()` snapshots the socket set
+    + per-send timeout (fixes the set-mutation crash & head-of-line stall); pause/resume/close endpoints
+    are async (off the threadpool) behind an `_exec_lock`; SQLite opened WAL + busy_timeout; SPA handler
+    realpath-confined (closes a local arbitrary-file-read).
+  - **P3-server-2** (`fd50893`): trade-linkage maps persisted to `reports/trade_links.json` + reloaded on
+    startup — a restored position's close is now journaled instead of leaving the trade 'open' forever.
+  - Tests → 138.
+  - **Remaining Phase 3 (data/network-dependent — need a live exchange to verify):** ccxt.pro WebSocket
+    streaming feed; tiered per-symbol maintenance-margin + funding-in-EV (need live ccxt risk-limit/funding
+    data); correlation-vs-open-book (needs return series threaded); typed WS lifecycle/alert events +
+    structured explainability payload (dashboard-enabling); close the learning loop.
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
