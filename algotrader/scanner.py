@@ -24,6 +24,7 @@ import pandas as pd
 
 from . import regime as regime_mod
 from .config import AppConfig
+from .indicators import breadth as breadth_mod
 from .models import Side, TradePlan
 from .reporting import plan_to_dict
 from .risk.manager import RiskManager
@@ -76,6 +77,10 @@ class Scanner:
         if btc_ctx is None:
             btc_ctx = data.get((_BTC, tfs[-1]))
         btc_regime = regime_mod.classify(btc_ctx) if btc_ctx is not None else "range"
+        # Universe breadth (risk-on/off) from the primary-timeframe frames.
+        breadth = breadth_mod.compute_breadth(
+            {s: data.get((s, tfs[0])) for s in symbols})
+        breadth_state = breadth["risk_state"]
 
         # ---- pass 1: rule engine over every symbol × timeframe (thread pool)
         loop = asyncio.get_running_loop()
@@ -94,7 +99,7 @@ class Scanner:
         # ---- preliminary ranking; only the head of the list is worth the
         # extra derivatives API calls (2 per candidate, rate-limited).
         for c in candidates:
-            c["rank"] = self._rank_of(c, btc_regime)
+            c["rank"] = self._rank_of(c, btc_regime, breadth_state)
         candidates.sort(key=lambda c: -c["rank"])
         n_all = len(candidates)
         candidates = candidates[:self.enrich_top]
@@ -107,7 +112,7 @@ class Scanner:
 
         # ---- portfolio-level ranking and pruning
         picks, suppressed, accepted_objs = self._rank_and_prune(
-            candidates, data, tfs, btc_regime)
+            candidates, data, tfs, btc_regime, breadth_state)
 
         # ---- per-symbol market summary for the dashboard heatmap
         cand_syms = {c["symbol"] for c in candidates}
@@ -136,6 +141,7 @@ class Scanner:
             "fetch_errors": fetch_errors,
             "candidates": len(candidates),
             "btc_regime": btc_regime,
+            "breadth": breadth,
             "scanned_at": utcnow_iso(),
             "duration_sec": round(time.monotonic() - t0, 2),
         }
@@ -218,10 +224,13 @@ class Scanner:
 
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _rank_of(c: dict, btc_regime: str) -> float:
+    def _rank_of(c: dict, btc_regime: str, breadth_state: str = "neutral") -> float:
         plan: TradePlan = c["plan"]
         side: Side = plan.side
-        bias = regime_mod.market_bias_factor(side, btc_regime)
+        # Market context: BTC-regime alignment (existing) AND universe breadth
+        # (bounded ±10% tilt favoring trades aligned with the risk-on/off tape).
+        bias = (regime_mod.market_bias_factor(side, btc_regime)
+                * breadth_mod.breadth_bias(side.sign, breadth_state))
         sig = c.get("signal")
         ml_ev_r = getattr(sig, "ml_ev_r", None) if sig is not None else None
         if ml_ev_r is not None:
@@ -234,11 +243,12 @@ class Scanner:
 
     def _rank_and_prune(self, candidates: list[dict], data: dict,
                         tfs: list[str], btc_regime: str,
+                        breadth_state: str = "neutral",
                         ) -> tuple[list[dict], list[dict], list[dict]]:
         # one candidate per symbol: best rank across timeframes
         best: dict[str, dict] = {}
         for c in candidates:
-            r = self._rank_of(c, btc_regime)   # re-rank: enrichment moved EV
+            r = self._rank_of(c, btc_regime, breadth_state)   # re-rank: enrichment moved EV
             c["rank"] = r
             if c["symbol"] not in best or r > best[c["symbol"]]["rank"]:
                 best[c["symbol"]] = c
