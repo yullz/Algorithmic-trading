@@ -85,9 +85,13 @@
   - **P4-6** (`cf38c5a`, verified live): in-drawer **15m/1h/4h/1d timeframe switcher** (refetches candles+
     overlays); **funding/OI microstructure panel** (`/api/derivatives` — funding 8h + annualized + OI 12h
     change + contrarian read). Verified on OP/USDT (funding 0.01%, OI −1.86%).
-  - **Remaining Phase 4:** basis (needs spot) + liquidation feed (needs a stream); symbol search/watchlist;
-    broader visual polish. The dashboard is now a full quant terminal (live overlays+RSI, patterns,
-    breadth, reliability/feature-importance analytics, derivatives, TF switcher).
+  - **P4-7** (`bccaaf4`, all verified live): perp-spot **basis** (`/api/derivatives` via Bybit raw
+    spot-ticker endpoint — BTC −0.015%); **liquidation feed** (`StreamingFeed.watch_liquidations` +
+    server buffer + `/api/liquidations` + drawer panel + typed `liquidation` events); **symbol search**
+    (chart any of the 150 pairs); **dark matte neutral-grey theme** (slate→neutral, matte flat cards).
+  - **Phase 4 essentially complete** — the dashboard is a full matte quant terminal: live overlays+RSI,
+    pattern markers, breadth, reliability/feature-importance analytics, funding/OI/basis/liquidations,
+    TF switcher, symbol search, real sparklines, live price_tick. Remaining is optional polish only.
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
