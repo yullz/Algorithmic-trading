@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { get } from './api';
 import { fmtPct } from './format';
 import { Chip, Dot, Empty, Section, Sparkline, Stat } from './ui';
-import type { BacktestReport, MLModelInfo, ReliabilityReport, WalkforwardReport } from './types';
+import type { BacktestReport, MLModelInfo, ReliabilityReport, RobustnessReport, WalkforwardReport } from './types';
 
 export default function AnalyticsView() {
   const [bt, setBt] = useState<BacktestReport | null>(null);
@@ -10,6 +10,7 @@ export default function AnalyticsView() {
   const [cal, setCal] = useState<Record<string, number> | null>(null);
   const [ml, setMl] = useState<MLModelInfo | null>(null);
   const [rel, setRel] = useState<ReliabilityReport | null>(null);
+  const [rob, setRob] = useState<RobustnessReport | null>(null);
 
   useEffect(() => {
     get<BacktestReport>('/api/backtest').then(setBt).catch(() => {});
@@ -17,6 +18,7 @@ export default function AnalyticsView() {
     get<Record<string, number>>('/api/calibration').then(setCal).catch(() => {});
     get<MLModelInfo>('/api/mlmodel').then(setMl).catch(() => {});
     get<ReliabilityReport>('/api/analytics/reliability').then(setRel).catch(() => {});
+    get<RobustnessReport>('/api/analytics/robustness').then(setRob).catch(() => {});
   }, []);
 
   const s = bt?.summary ?? {};
@@ -97,6 +99,72 @@ export default function AnalyticsView() {
           </div>
         )}
       </Section>
+
+      {rob?.present && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Section title="Robustness — is the edge real?">
+            <div className="space-y-4 p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Stat label="deflated Sharpe" value={fmtPct(rob.deflated_sharpe?.dsr ?? 0, 0)}
+                  tone={(rob.deflated_sharpe?.dsr ?? 0) >= 0.95 ? 'success' : 'warning'}
+                  sub={`SR ${rob.deflated_sharpe?.sharpe?.toFixed(2)} vs null ${rob.deflated_sharpe?.sr0?.toFixed(2)} · ${rob.n_trials} tries`} />
+                <Stat label="overfit prob (PBO)"
+                  value={rob.pbo?.pbo != null ? fmtPct(rob.pbo.pbo, 0) : '—'}
+                  tone={rob.pbo?.pbo == null ? undefined
+                    : rob.pbo.pbo < 0.2 ? 'success' : rob.pbo.pbo < 0.5 ? 'warning' : 'danger'}
+                  sub={rob.pbo?.pbo != null ? `${rob.pbo.n_configs} configs · lower is better` : 'need a wider grid'} />
+              </div>
+              {rob.bootstrap_expectancy && (
+                <div className="rounded-lg bg-surface-2/50 p-3 text-sm dark:bg-neutral-800/40">
+                  <div className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">expectancy · 95% bootstrap CI</div>
+                  <div className="num mt-1">
+                    <span className={rob.bootstrap_expectancy.mean >= 0 ? 'text-success' : 'text-danger'}>
+                      {rob.bootstrap_expectancy.mean.toFixed(2)}R
+                    </span>
+                    <span className="ml-2 text-2xs text-neutral-500">
+                      [{rob.bootstrap_expectancy.lo?.toFixed(2)}, {rob.bootstrap_expectancy.hi?.toFixed(2)}]
+                      {' · '}{fmtPct(rob.bootstrap_expectancy.positive_frac ?? 0, 0)} positive
+                    </span>
+                  </div>
+                </div>
+              )}
+              <p className="text-2xs leading-relaxed text-neutral-500">
+                Deflated Sharpe corrects the raw Sharpe for how many parameter tries it took; PBO
+                ({'<'}0.2 good) asks how often the in-sample-best sub-strategy fails out-of-sample.
+              </p>
+            </div>
+          </Section>
+
+          <Section title="Account simulation (compounded)">
+            {!rob.account?.present ? (
+              <Empty title="No account simulation" hint="Backtest with dated trades to simulate a real equity path." />
+            ) : (
+              <div className="space-y-3 p-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <Stat label="CAGR" value={`${(rob.account.cagr_pct ?? 0).toFixed(1)}%`}
+                    tone={(rob.account.cagr_pct ?? 0) >= 0 ? 'success' : 'danger'} />
+                  <Stat label="max drawdown" value={`${(rob.account.max_drawdown_pct ?? 0).toFixed(1)}%`} tone="warning" />
+                  <Stat label="ruin prob" value={fmtPct(rob.account.ruin_prob ?? 0, 0)}
+                    tone={(rob.account.ruin_prob ?? 0) < 0.05 ? 'success'
+                      : (rob.account.ruin_prob ?? 0) < 0.2 ? 'warning' : 'danger'}
+                    sub="to 50% loss" />
+                  <Stat label="time underwater" value={`${(rob.account.time_under_water_pct ?? 0).toFixed(0)}%`} />
+                  <Stat label="MC drawdown p95" value={`${(rob.account.mc_drawdown_p95_pct ?? 0).toFixed(0)}%`} tone="warning" />
+                  <Stat label="final equity"
+                    value={`$${Math.round(rob.account.final_equity ?? 0).toLocaleString()}`}
+                    tone={(rob.account.total_return_pct ?? 0) >= 0 ? 'success' : 'danger'} />
+                </div>
+                {rob.account.equity_curve && rob.account.equity_curve.length > 1 && (
+                  <div className="card flex items-center justify-center p-3">
+                    <Sparkline data={rob.account.equity_curve} width={260} height={56}
+                      fill="var(--success)" stroke="var(--success)" />
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Section title="Calibration reliability (predicted vs realized)">

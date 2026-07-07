@@ -186,6 +186,28 @@ export interface ReliabilityReport {
   n?: number;
 }
 
+export interface RobustnessReport {
+  present: boolean;
+  n_trades?: number;
+  n_trials?: number;
+  deflated_sharpe?: {
+    sharpe: number; sr0: number; dsr: number;
+    skew?: number; kurtosis?: number; n_trials: number; n: number;
+  };
+  bootstrap_expectancy?: {
+    mean: number; lo: number | null; hi: number | null;
+    n: number; positive_frac?: number;
+  };
+  account?: {
+    present: boolean; start_equity?: number; final_equity?: number;
+    total_return_pct?: number; cagr_pct?: number; max_drawdown_pct?: number;
+    time_under_water_pct?: number; sharpe?: number; span_years?: number;
+    n_trades?: number; ruin_prob?: number; mc_drawdown_p95_pct?: number;
+    equity_curve?: number[];
+  };
+  pbo?: { pbo: number | null; n_configs: number; n_splits: number };
+}
+
 export interface Derivatives {
   present: boolean;
   symbol?: string;

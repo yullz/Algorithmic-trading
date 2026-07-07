@@ -562,6 +562,16 @@ def api_reliability():
         return {"present": False, "error": str(e)}
 
 
+@app.get("/api/analytics/robustness")
+def api_robustness():
+    """Deflated Sharpe, PBO, bootstrap CI, and the account-level simulation from
+    the last backtest (reports/robustness.json)."""
+    rep = read_json("reports/robustness.json")
+    if not rep:
+        return {"present": False}
+    return {"present": True, **rep}
+
+
 @app.get("/api/history/signals")
 def api_history_signals(symbol: str = "", timeframe: str = "", side: str = "",
                         regime: str = "", from_: str = "", to: str = "",
