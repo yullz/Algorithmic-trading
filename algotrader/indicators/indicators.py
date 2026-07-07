@@ -380,6 +380,74 @@ def compute_all(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def numeric_context(ind: pd.DataFrame) -> dict[str, float]:
+    """Stationary continuous indicator values at the latest bar, for the ML
+    meta-model.
+
+    The rule engine collapses indicators into sparse fired/not-fired factors and
+    throws away the actual numbers. GBDTs exploit the raw values directly, so
+    this exposes them — but everything price-scaled is NORMALIZED (distance-to-MA
+    and MACD-hist in ATRs, Bollinger width as a fraction) so features are
+    comparable across symbols trading at very different price levels. Bounded
+    oscillators pass through as-is; NaN/inf are omitted (signal_row zero-fills).
+
+    'atr_percentile'/'volatility_percentile' keep their existing (unprefixed)
+    feature-column names; every other key is prefixed 'ind_'.
+    """
+    if ind is None or len(ind) == 0:
+        return {}
+    r = ind.iloc[-1]
+
+    def val(key):
+        v = r.get(key, np.nan)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if (np.isnan(v) or np.isinf(v)) else v
+
+    ctx: dict[str, float] = {}
+
+    def put(name, v):
+        if v is not None and not np.isnan(v) and not np.isinf(v):
+            ctx[name] = float(v)
+
+    put("atr_percentile", val("atr_percentile"))
+    put("volatility_percentile", val("volatility_percentile"))
+
+    # Bounded oscillators / directional flags — already stationary.
+    for k in ("rsi", "adx", "plus_di", "minus_di", "stoch_k", "stoch_d",
+              "mfi", "cci", "willr", "cmf", "roc", "aroon_up", "aroon_down",
+              "stochrsi_k", "supertrend_dir", "psar_dir"):
+        put(f"ind_{k}", val(k))
+
+    close, atrv = val("close"), val("atr")
+    if close is not None and atrv is not None and atrv > 0:
+        for span in (20, 50, 200):
+            e = val(f"ema{span}")
+            if e is not None:
+                put(f"ind_dist_ema{span}_atr", (close - e) / atrv)
+        vw = val("vwap")
+        if vw is not None:
+            put("ind_dist_vwap_atr", (close - vw) / atrv)
+        mh = val("macd_hist")
+        if mh is not None:
+            put("ind_macd_hist_atr", mh / atrv)
+        # Ichimoku cloud position in ATRs (>0 above cloud, <0 below, 0 inside).
+        sa, sb = val("senkou_a"), val("senkou_b")
+        if sa is not None and sb is not None:
+            top, bot = max(sa, sb), min(sa, sb)
+            put("ind_cloud_pos_atr",
+                (close - top) / atrv if close > top
+                else (close - bot) / atrv if close < bot else 0.0)
+
+    bu, bl, bm = val("bb_up"), val("bb_low"), val("bb_mid")
+    if bu is not None and bl is not None and bm not in (None, 0):
+        put("ind_bb_width", (bu - bl) / bm)
+
+    return ctx
+
+
 # --------------------------------------------------------------------------- #
 # Evidence
 # --------------------------------------------------------------------------- #

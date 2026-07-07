@@ -218,3 +218,7 @@ class Signal:
     ml_prob: Optional[float] = None
     ml_weight: float = 0.0
     ml_contribs: list[str] = field(default_factory=list)
+    # Continuous, stationary indicator values at signal time (ind_* keys) fed to
+    # the ML meta-model and recorded in the backtest dataset. See
+    # indicators.numeric_context.
+    numeric_context: dict = field(default_factory=dict)

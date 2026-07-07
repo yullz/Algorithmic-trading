@@ -93,6 +93,7 @@ class MetaModel:
                            stop_pct: float, side_sign: int,
                            volatility_percentile: float = 0.0,
                            atr_percentile: float = 0.0,
+                           numeric_context: Optional[dict] = None,
                            entry_time: Optional[str] = None,
                            ) -> Optional[tuple[float, float, list[str]]]:
         if self.weight <= 0:
@@ -106,6 +107,7 @@ class MetaModel:
             timeframe=timeframe,
             volatility_percentile=volatility_percentile,
             atr_percentile=atr_percentile,
+            numeric_context=numeric_context,
             entry_time=entry_time)
         try:
             prob = float(self.model.predict_proba(row)[0, 1])

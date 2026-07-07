@@ -84,6 +84,40 @@ def test_build_matrix_includes_interactions_and_context(toy_dataset):
     assert len(X) == len(y)
 
 
+def test_build_matrix_and_signal_row_include_numeric_indicators():
+    """Continuous indicator values (ind_* + percentiles) flow into the feature
+    matrix at train time and are filled from numeric_context at inference."""
+    ds = pd.DataFrame({
+        "win": [0, 1, 0, 1, 0, 1],
+        "confidence": [0.5, 0.6, 0.7, 0.8, 0.55, 0.62],
+        "score": [1.0, -1.0, 2.0, -2.0, 0.5, 1.0],
+        "n_families": [1, 2, 3, 4, 2, 3], "n_factors": [1, 2, 3, 4, 3, 2],
+        "rule_win_rate": [0.5] * 6, "stop_pct": [0.02] * 6,
+        "side": [1, -1, 1, -1, 1, -1],
+        "kind": ["breakout"] * 6, "regime": ["trend_up"] * 6, "tf": ["1h"] * 6,
+        "entry_time": pd.date_range("2024-01-01", periods=6, freq="h"),
+        "atr_percentile": [0.3] * 6, "volatility_percentile": [0.4] * 6,
+        "ind_rsi": [55, 60, 65, 40, 50, 58],
+        "ind_dist_ema50_atr": [0.5, -0.2, 1.0, -1.5, 0.1, 0.3],
+        "factor__ema_stack_bull": [0.8, 0, 0.9, 0, 0.7, 0.6],
+    })
+    X, y = features.build_matrix(ds)
+    cols = set(X.columns)
+    assert {"ind_rsi", "ind_dist_ema50_atr", "atr_percentile",
+            "volatility_percentile"} <= cols
+
+    row = features.signal_row(
+        list(X.columns), evidence=[], confidence=0.7, score=1.0, n_families=2,
+        rule_win_rate=0.55, stop_pct=0.02, side_sign=1, kind="breakout",
+        regime="trend_up", timeframe="1h",
+        numeric_context={"ind_rsi": 62.0, "ind_dist_ema50_atr": 0.9,
+                         "atr_percentile": 0.7, "volatility_percentile": 0.5})
+    assert list(row.columns) == list(X.columns)
+    assert row["ind_rsi"].iloc[0] == pytest.approx(62.0)
+    assert row["ind_dist_ema50_atr"].iloc[0] == pytest.approx(0.9)
+    assert row["atr_percentile"].iloc[0] == pytest.approx(0.7)
+
+
 def test_signal_row_aligns_with_training_columns(toy_dataset):
     X, _ = features.build_matrix(toy_dataset)
     cols = list(X.columns)

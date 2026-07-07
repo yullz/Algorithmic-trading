@@ -196,6 +196,9 @@ class SignalEngine:
         last = indf.iloc[-1]
         entry_ref = float(last["close"])
         atr_val = float(last["atr"]) if not np.isnan(last["atr"]) else entry_ref * 0.01
+        # Continuous indicator values (normalized/stationary) for the ML model
+        # and the backtest dataset.
+        numeric_context = ind.numeric_context(indf)
 
         structure_stop, structure_target = self._structure_anchors(
             patterns, agg["agreeing"], side, entry_ref)
@@ -223,6 +226,7 @@ class SignalEngine:
                 side_sign=side.sign,
                 volatility_percentile=vol_pct,
                 atr_percentile=atr_pct,
+                numeric_context=numeric_context,
                 entry_time=str(indf.index[-1]))
             if out is not None:
                 ml_prob, ml_weight, ml_contribs = out
@@ -238,6 +242,7 @@ class SignalEngine:
             structure_stop=structure_stop, structure_target=structure_target,
             regime=regime_label, families=agg["families"],
             ml_prob=ml_prob, ml_weight=ml_weight, ml_contribs=ml_contribs,
+            numeric_context=numeric_context,
         )
 
     # ------------------------------------------------------------------ #

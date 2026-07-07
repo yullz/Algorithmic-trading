@@ -208,6 +208,9 @@ class BacktestResult:
                 "stop_pct": t.get("stop_pct", 0.0),
                 "r": t["r"], "win": int(t["win"]),
             }
+            # Continuous indicator values captured at signal time (ind_* + the
+            # two percentiles). These are the biggest feature-quality upgrade.
+            row.update(t.get("numeric_context") or {})
             for name, s in (t.get("factor_strengths") or {}).items():
                 row[f"factor__{name}"] = s
             rows.append(row)
@@ -297,6 +300,7 @@ class Backtester:
                 "factor_strengths": {e.name: e.strength for e in sig.evidence},
                 "rule_win_rate": sig.base_win_rate,
                 "stop_pct": abs(plan.entry - plan.stop_loss) / plan.entry,
+                "numeric_context": dict(getattr(sig, "numeric_context", {}) or {}),
                 "entry_time": str(sl.index[-1]),
             })
             i = max(exit_i, i + 1)  # no overlapping trades

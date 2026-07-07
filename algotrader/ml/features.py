@@ -102,6 +102,10 @@ def build_matrix(ds: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     factor_cols = sorted(c for c in ds.columns if c.startswith("factor__"))
     if factor_cols:
         X = pd.concat([X, ds[factor_cols].astype(float)], axis=1)
+    # Continuous, normalized indicator values (ind_rsi, ind_dist_ema50_atr, ...).
+    ind_cols = sorted(c for c in ds.columns if c.startswith("ind_"))
+    if ind_cols:
+        X = pd.concat([X, ds[ind_cols].astype(float)], axis=1)
     X = _add_interactions(X, ds)
     return X[sorted(X.columns)], y
 
@@ -127,6 +131,7 @@ def signal_row(feature_columns: list[str], *, evidence: list[Evidence],
                kind: str, regime: str, timeframe: str,
                volatility_percentile: float = 0.0,
                atr_percentile: float = 0.0,
+               numeric_context: Optional[dict] = None,
                entry_time: Optional[str | datetime] = None) -> pd.DataFrame:
     """One inference row aligned to the training columns (missing -> 0)."""
     row: dict[str, float] = {c: 0.0 for c in feature_columns}
@@ -144,6 +149,10 @@ def signal_row(feature_columns: list[str], *, evidence: list[Evidence],
     put("side", side_sign)
     put("volatility_percentile", volatility_percentile)
     put("atr_percentile", atr_percentile)
+    # Continuous indicator values (ind_* and the two percentiles). Any column the
+    # model never saw is ignored; any the model expects but is absent stays 0.
+    for _k, _v in (numeric_context or {}).items():
+        put(_k, _v)
     put(f"kind__{kind}", 1.0)
     put(f"regime__{regime}", 1.0)
     put(f"tf__{timeframe}", 1.0)

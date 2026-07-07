@@ -137,6 +137,28 @@ def test_squeeze_uses_tighter_keltner():
     assert int(tight.sum()) <= int(wide.sum())
 
 
+def test_numeric_context_is_stationary_across_price_levels():
+    """The continuous ML context normalizes price-scaled features (distance-to-MA
+    in ATRs), so the same shape at price 100 vs 10000 yields ~equal values."""
+    rng = np.random.default_rng(9)
+    close = 100 + np.cumsum(rng.normal(0, 0.4, 250))
+    vol = rng.uniform(100, 200, len(close))
+
+    def frame(scale):
+        c = close * scale
+        return pd.DataFrame({"open": c, "high": c + 0.4 * scale,
+                             "low": c - 0.4 * scale, "close": c, "volume": vol})
+
+    lo = ind.numeric_context(ind.compute_all(frame(1.0)))
+    hi = ind.numeric_context(ind.compute_all(frame(100.0)))
+
+    assert "ind_rsi" in lo and "ind_dist_ema50_atr" in lo
+    assert "atr_percentile" in lo and "ind_macd_hist_atr" in lo
+    # Bounded oscillator identical; ATR-normalized distance scale-invariant.
+    assert abs(lo["ind_rsi"] - hi["ind_rsi"]) < 1e-6
+    assert abs(lo["ind_dist_ema50_atr"] - hi["ind_dist_ema50_atr"]) < 1e-3
+
+
 # --------------------------------------------------------------------------- #
 # Market structure
 # --------------------------------------------------------------------------- #
