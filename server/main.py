@@ -329,6 +329,47 @@ async def scan_loop() -> None:
         await feed.close()
 
 
+async def price_ticker_loop() -> None:
+    """Stream live prices for open-position symbols (ccxt.pro) and push price_tick
+    events so the dashboard's prices/PnL move between scans. No-op unless
+    streaming is enabled and ccxt.pro is importable — the REST feed always
+    remains the source of truth for signals."""
+    from algotrader.data.stream import StreamingFeed
+    if not cfg.streaming_enabled or not StreamingFeed.available():
+        return
+    feed = StreamingFeed(cfg.exchange_id, cfg.market_type)
+    log.info("price ticker started (ccxt.pro streaming enabled)")
+    try:
+        while True:
+            symbols = sorted({p.symbol for p in executor.open_positions()})
+            if not symbols:
+                await asyncio.sleep(5)
+                continue
+            feed._stop = asyncio.Event()
+
+            async def on_tick(sym: str, price: float, ts: str) -> None:
+                async with _exec_lock:
+                    for pos in executor.open_positions():
+                        if pos.symbol == sym:
+                            pos.last_price = price
+                            pos.unrealized_pnl = (pos.side.sign
+                                                  * (price - pos.entry) * pos.qty_open)
+                await broadcast("price_tick", {"symbol": sym, "price": price, "ts": ts})
+
+            async def resubscribe_when_positions_change() -> None:
+                while not feed._stop.is_set():
+                    await asyncio.sleep(5)
+                    if sorted({p.symbol for p in executor.open_positions()}) != symbols:
+                        feed.stop()  # break the watch; the outer loop re-subscribes
+
+            await asyncio.gather(feed.watch_prices(symbols, on_tick),
+                                 resubscribe_when_positions_change())
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await feed.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global live_executor
@@ -341,8 +382,10 @@ async def lifespan(app: FastAPI):
         except LiveTradingRefused as e:
             log.warning("live execution refused (%s) — running paper-only", e)
     task = asyncio.create_task(scan_loop())
+    ticker_task = asyncio.create_task(price_ticker_loop())
     yield
     task.cancel()
+    ticker_task.cancel()
 
 
 app = FastAPI(title="AlgoTrader", lifespan=lifespan)

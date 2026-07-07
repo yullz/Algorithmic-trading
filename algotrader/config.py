@@ -50,6 +50,9 @@ class AppConfig:
     ml_enabled: bool = True
     ml_model_path: str = "models/meta_model.pkl"
     ml_min_training_trades: int = 300
+    # streaming (ccxt.pro live ticks for the dashboard; default OFF — the REST
+    # feed remains the source of truth for signals regardless)
+    streaming_enabled: bool = False
     # execution
     execution_mode: str = "paper"        # "paper" | "live"
     execution_testnet: bool = True       # live orders go to testnet unless BOTH
@@ -141,6 +144,7 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         ml_enabled=bool(ml.get("enabled", True)),
         ml_model_path=ml.get("model_path", "models/meta_model.pkl"),
         ml_min_training_trades=int(ml.get("min_training_trades", 300)),
+        streaming_enabled=bool(raw.get("streaming", {}).get("enabled", False)),
         execution_mode=execu.get("mode", "paper"),
         execution_testnet=bool(execu.get("testnet", True)),
         allow_mainnet=bool(execu.get("allow_mainnet", False)),

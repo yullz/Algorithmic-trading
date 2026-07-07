@@ -87,6 +87,11 @@ ml:
   # Below this many backtest trades the meta-model stays out of the blend.
   min_training_trades: 300
 
+streaming:
+  # ccxt.pro WebSocket live ticks -> the dashboard updates prices/PnL between
+  # scans. OFF by default; the REST feed remains the source of truth for signals.
+  enabled: false
+
 execution:
   mode: paper               # paper | live  (live ALSO requires ALLOW_LIVE_TRADING=true in .env)
   testnet: true             # live orders go to Bybit testnet...
