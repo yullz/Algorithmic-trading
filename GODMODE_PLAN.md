@@ -82,8 +82,12 @@
     59%→71%); **ML feature-importance** bars (`/api/mlmodel` top_features); **chart pattern markers**
     (`/api/candles` patterns → bias-colored labeled markers, verified on CBRS trendline_break_up). E[R] +
     feature-importance render once a trusted reward-head model is trained (graceful with the current one).
-  - **Remaining Phase 4:** microstructure panels (funding/OI/basis/liquidations — need live data); broader
-    visual polish; per-symbol/timeframe controls in the drawer.
+  - **P4-6** (`cf38c5a`, verified live): in-drawer **15m/1h/4h/1d timeframe switcher** (refetches candles+
+    overlays); **funding/OI microstructure panel** (`/api/derivatives` — funding 8h + annualized + OI 12h
+    change + contrarian read). Verified on OP/USDT (funding 0.01%, OI −1.86%).
+  - **Remaining Phase 4:** basis (needs spot) + liquidation feed (needs a stream); symbol search/watchlist;
+    broader visual polish. The dashboard is now a full quant terminal (live overlays+RSI, patterns,
+    breadth, reliability/feature-importance analytics, derivatives, TF switcher).
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
