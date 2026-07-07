@@ -73,6 +73,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--output-suffix", default="",
                     help="suffix for reports/backtest{suffix}.json and "
                          "reports/dataset{suffix}.parquet (for batching)")
+    ap.add_argument("--trials", type=int, default=50,
+                    help="number of parameter/strategy variations tried during "
+                         "development, used to DEFLATE the Sharpe (be honest here)")
     return ap
 
 
@@ -357,6 +360,7 @@ def main() -> None:
     calib_path = (cfg.calibration_file.replace(".json", f"{suffix}.json")
                   if suffix else cfg.calibration_file)
     _write_calibration(cfg, args, combined, calib_path, symbols, timeframes)
+    _write_robustness(all_trades, cfg, args.trials, suffix)
 
     print("\nReminder: the LIVE calibration is the OUT-OF-SAMPLE (--walkforward) result "
           "when available — the honest test. Past performance != future results.")
@@ -394,6 +398,59 @@ def _write_calibration(cfg: AppConfig, args: argparse.Namespace, combined,
                     "optimistically biased — re-run with --walkforward to write "
                     "out-of-sample-validated calibration before live/paper trading.",
                     n, calib_path)
+
+
+def _kind_period_matrix(trades: list[dict], n_periods: int = 20):
+    """Returns a (period x setup-kind) mean-R matrix for PBO — each kind is a
+    candidate 'config', so PBO asks whether the in-sample-best sub-strategy stays
+    best out-of-sample."""
+    import numpy as np
+    kinds = sorted({t.get("kind", "") for t in trades})
+    if len(kinds) < 2:
+        return None
+    order = sorted(range(len(trades)),
+                   key=lambda i: str(trades[i].get("entry_time", "")))
+    rows = []
+    for chunk in np.array_split(order, n_periods):
+        if len(chunk) == 0:
+            continue
+        row = []
+        for k in kinds:
+            rs = [trades[i]["r"] for i in chunk if trades[i].get("kind") == k]
+            row.append(float(np.mean(rs)) if rs else 0.0)
+        rows.append(row)
+    return np.array(rows) if len(rows) >= 10 else None
+
+
+def _write_robustness(trades: list[dict], cfg: AppConfig, n_trials: int,
+                      suffix: str = "") -> None:
+    """Deflated Sharpe, PBO, bootstrap CI, and an account-level simulation ->
+    reports/robustness.json — the tests that decide if an R-edge is survivable."""
+    if not trades:
+        return
+    from algotrader.backtest.account import simulate_account
+    from algotrader.backtest.robustness import (
+        block_bootstrap_expectancy_ci, deflated_sharpe_ratio,
+        probability_backtest_overfitting)
+    r_series = [t["r"] for t in trades]
+    report = {
+        "n_trades": len(trades),
+        "n_trials": n_trials,
+        "deflated_sharpe": deflated_sharpe_ratio(r_series, n_trials),
+        "bootstrap_expectancy": block_bootstrap_expectancy_ci(r_series),
+        "account": simulate_account(trades, cfg.risk),
+    }
+    mat = _kind_period_matrix(trades)
+    if mat is not None:
+        report["pbo"] = probability_backtest_overfitting(mat)
+    path = f"reports/robustness{suffix}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+    acc = report["account"]
+    log.info("wrote %s: DSR=%.2f, PBO=%s, CAGR=%s%%, maxDD=%s%%, ruin=%.0f%%",
+             path, report["deflated_sharpe"]["dsr"],
+             report.get("pbo", {}).get("pbo"), acc.get("cagr_pct"),
+             acc.get("max_drawdown_pct"), acc.get("ruin_prob", 0) * 100)
 
 
 def run_walkforward(cfg: AppConfig, symbols: list[str], timeframes: list[str],
