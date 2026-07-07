@@ -301,3 +301,42 @@ def test_isotonic_calibration_and_brier_gate(tmp_path, strong_dataset):
 
     mm = MetaModel.load(str(out_path), min_training_trades=10)
     assert mm is not None and mm.weight > 0, "skillful, calibrated model must be trusted"
+
+
+def test_reward_head_trains_persists_and_loads(tmp_path):
+    """The E[R] reward head is trained on a dataset with an 'r' column, evaluated
+    OOS by Spearman rank-skill, persisted, and exposed via MetaModel."""
+    import pickle
+    rng = np.random.default_rng(21)
+    n = 400
+    score = rng.normal(0, 1, n)
+    r = score * 1.5 + rng.normal(0, 0.5, n)   # realized R strongly tied to score
+    win = (r > 0).astype(int)
+    ds = pd.DataFrame({
+        "win": win, "r": r,
+        "confidence": rng.uniform(0.3, 0.9, n), "score": score,
+        "n_families": rng.integers(2, 5, n), "n_factors": rng.integers(2, 6, n),
+        "rule_win_rate": rng.uniform(0.4, 0.6, n), "stop_pct": rng.uniform(0.005, 0.05, n),
+        "side": rng.choice([1, -1], n),
+        "kind": rng.choice(
+            ["reversal", "continuation", "breakout", "momentum", "mean_reversion"], n),
+        "regime": rng.choice(["trend_up", "trend_down", "range", "volatile"], n),
+        "tf": rng.choice(["1h", "4h", "1d"], n),
+        "entry_time": pd.date_range("2024-01-01", periods=n, freq="h"),
+        "ind_rsi": rng.uniform(20, 80, n),
+        "factor__ema_stack_bull": rng.uniform(0, 1, n),
+    })
+    ds_path = tmp_path / "rew.parquet"
+    out = tmp_path / "m.pkl"
+    ds.to_parquet(ds_path)
+
+    meta = train.train(str(ds_path), str(out), min_trades=10)
+    assert meta["has_reward_head"] is True
+    assert meta["reward_spearman"] > 0.1
+    assert meta["reward_trusted"] is True
+
+    blob = pickle.load(open(out, "rb"))
+    assert blob["reward_model"] is not None
+
+    mm = MetaModel.load(str(out), min_training_trades=10)
+    assert mm is not None and mm.reward_available is True

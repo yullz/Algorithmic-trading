@@ -221,8 +221,16 @@ class Scanner:
     def _rank_of(c: dict, btc_regime: str) -> float:
         plan: TradePlan = c["plan"]
         side: Side = plan.side
-        return float(plan.expected_value_r * plan.confidence *
-                     regime_mod.market_bias_factor(side, btc_regime))
+        bias = regime_mod.market_bias_factor(side, btc_regime)
+        sig = c.get("signal")
+        ml_ev_r = getattr(sig, "ml_ev_r", None) if sig is not None else None
+        if ml_ev_r is not None:
+            # The ML reward head's per-trade expected R (a genuine cross-sectional
+            # EV, learned per candidate) supersedes the old heuristic where EV
+            # used GLOBAL avg_win_r/avg_loss_r constants — so ranking collapsed to
+            # base_win_rate * confidence * bias with no per-trade reward geometry.
+            return float(ml_ev_r * bias)
+        return float(plan.expected_value_r * plan.confidence * bias)
 
     def _rank_and_prune(self, candidates: list[dict], data: dict,
                         tfs: list[str], btc_regime: str,

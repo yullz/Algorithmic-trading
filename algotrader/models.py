@@ -218,6 +218,9 @@ class Signal:
     ml_prob: Optional[float] = None
     ml_weight: float = 0.0
     ml_contribs: list[str] = field(default_factory=list)
+    # Predicted per-trade expected R from the ML reward head (None unless the
+    # reward head is present AND earned OOS rank skill). Used for ranking.
+    ml_ev_r: Optional[float] = None
     # Continuous, stationary indicator values at signal time (ind_* keys) fed to
     # the ML meta-model and recorded in the backtest dataset. See
     # indicators.numeric_context.

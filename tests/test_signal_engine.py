@@ -47,7 +47,8 @@ class _StubMeta:
         # C1 regression: the engine builds entry_time=str(indf.index[-1]).
         # If that referenced an undefined variable this call never happens.
         self.seen_entry_time = kwargs.get("entry_time")
-        return (0.62, 0.3, ["ema_stack_bull (+0.10)"])
+        # 4-tuple: (prob, weight, contribs, ev_r) — ev_r is the reward head.
+        return (0.62, 0.3, ["ema_stack_bull (+0.10)"], 1.4)
 
 
 def test_generate_ml_blend_branch_does_not_crash(monkeypatch):
@@ -65,6 +66,8 @@ def test_generate_ml_blend_branch_does_not_crash(monkeypatch):
     assert sig.ml_prob == pytest.approx(0.62)
     assert sig.ml_weight == pytest.approx(0.3)
     assert sig.ml_contribs == ["ema_stack_bull (+0.10)"]
+    # The reward head's predicted per-trade E[R] was captured on the Signal.
+    assert sig.ml_ev_r == pytest.approx(1.4)
     # entry_time was actually passed as a non-empty string (the C1 fix).
     assert isinstance(stub.seen_entry_time, str) and stub.seen_entry_time
 

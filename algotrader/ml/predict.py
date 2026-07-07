@@ -27,9 +27,13 @@ log = get_logger("ml.predict")
 
 
 class MetaModel:
-    def __init__(self, model, meta: dict):
+    def __init__(self, model, meta: dict, reward_model=None):
         self.model = model
         self.meta = meta
+        self.reward_model = reward_model
+        # The reward (E[R]) head is used for ranking only when it earned OOS skill.
+        self.reward_available = bool(reward_model is not None
+                                     and meta.get("reward_trusted"))
         auc = float(meta.get("auc_valid", 0.5))
         brier = float(meta.get("brier_valid", 1.0))
         brier_baseline = float(meta.get("brier_baseline", 1.0))
@@ -55,6 +59,7 @@ class MetaModel:
                 blob = pickle.load(f)
             model = blob["model"]
             meta = blob["meta"]
+            reward_model = blob.get("reward_model")
 
             # Feature-logic guard. A real 150-symbol model legitimately has a
             # different (larger) column set than any small probe, so we do NOT
@@ -73,7 +78,7 @@ class MetaModel:
 
             if min_training_trades is not None:
                 meta["min_trades"] = min_training_trades
-            mm = cls(model, meta)
+            mm = cls(model, meta, reward_model=reward_model)
             if mm.weight <= 0:
                 log.warning("meta-model loaded but not trusted (n=%s, AUC=%s) — "
                             "running rules-only", meta.get("n_train"),
@@ -95,7 +100,7 @@ class MetaModel:
                            atr_percentile: float = 0.0,
                            numeric_context: Optional[dict] = None,
                            entry_time: Optional[str] = None,
-                           ) -> Optional[tuple[float, float, list[str]]]:
+                           ) -> Optional[tuple[float, float, list[str], Optional[float]]]:
         if self.weight <= 0:
             return None
         cols = self.meta["feature_columns"]
@@ -114,8 +119,14 @@ class MetaModel:
         except Exception as e:
             log.warning("meta-model predict failed (%s) — skipping", e)
             return None
+        ev_r = None
+        if self.reward_available and self.reward_model is not None:
+            try:
+                ev_r = float(self.reward_model.predict(row)[0])
+            except Exception:  # pragma: no cover - defensive
+                ev_r = None
         contribs = self._contributions(row, prob)
-        return prob, self.weight, contribs
+        return prob, self.weight, contribs, ev_r
 
     def drift_score(self, recent_predictions: list[float],
                     recent_outcomes: list[int]) -> Optional[float]:

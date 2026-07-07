@@ -211,7 +211,7 @@ class SignalEngine:
             staleness_days=self.staleness_days,
         )
 
-        ml_prob, ml_weight, ml_contribs = None, 0.0, []
+        ml_prob, ml_weight, ml_contribs, ml_ev_r = None, 0.0, [], None
         if self.meta_model is not None:
             vol_pct = float(last.get("volatility_percentile", 0.0)
                             if not pd.isna(last.get("volatility_percentile"))
@@ -229,7 +229,9 @@ class SignalEngine:
                 numeric_context=numeric_context,
                 entry_time=str(indf.index[-1]))
             if out is not None:
-                ml_prob, ml_weight, ml_contribs = out
+                # Backward-compatible: reward head (ev_r) is an optional 4th field.
+                ml_prob, ml_weight, ml_contribs = out[0], out[1], out[2]
+                ml_ev_r = out[3] if len(out) > 3 else None
                 base_wr = blend_win_rate(base_wr, ml_prob, ml_weight)
 
         return Signal(
@@ -242,7 +244,7 @@ class SignalEngine:
             structure_stop=structure_stop, structure_target=structure_target,
             regime=regime_label, families=agg["families"],
             ml_prob=ml_prob, ml_weight=ml_weight, ml_contribs=ml_contribs,
-            numeric_context=numeric_context,
+            ml_ev_r=ml_ev_r, numeric_context=numeric_context,
         )
 
     # ------------------------------------------------------------------ #

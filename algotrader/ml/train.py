@@ -102,6 +102,40 @@ def _purged_walk_forward(X: pd.DataFrame, y: pd.Series, entry_times: pd.Series,
     return aucs, briers
 
 
+def _reward_walk_forward(X: pd.DataFrame, r: pd.Series, entry_times: pd.Series,
+                         label_end: pd.Series, n_folds: int,
+                         hyperparams: dict) -> float:
+    """Purged anchored walk-forward for the E[R] regressor. Returns the mean
+    Spearman rank-correlation between predicted and realized R across folds —
+    RANKING skill is what matters for selecting the best trades, not R² of the
+    absolute level.
+    """
+    from scipy.stats import spearmanr
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    n = len(X)
+    start = int(n * 0.4)
+    seg = max(1, (n - start) // max(1, n_folds))
+    positions = np.arange(n)
+    rhos: list[float] = []
+    for k in range(n_folds):
+        a = start + k * seg
+        b = n if k == n_folds - 1 else start + (k + 1) * seg
+        if a >= b or a >= n:
+            continue
+        valid_start_time = entry_times.iloc[a]
+        train_mask = (label_end < valid_start_time).to_numpy() & (positions < a)
+        rva = r.iloc[a:b]
+        if train_mask.sum() < 30 or rva.nunique() < 3:
+            continue
+        m = HistGradientBoostingRegressor(**hyperparams)
+        m.fit(X.iloc[train_mask], r.iloc[train_mask])
+        rho, _ = spearmanr(m.predict(X.iloc[a:b]), rva)
+        if rho == rho:  # not NaN
+            rhos.append(float(rho))
+    return float(np.mean(rhos)) if rhos else 0.0
+
+
 def train(dataset_path: str = "reports/dataset.parquet",
           out_path: str = "models/meta_model.pkl",
           min_trades: int = 300, horizon_bars: int = 48,
@@ -173,9 +207,25 @@ def train(dataset_path: str = "reports/dataset.parquet",
     except Exception:  # pragma: no cover - defensive
         feature_importances = [0.0] * len(feature_names)
 
+    # --- reward head: E[R] regressor (predicts realized R for per-trade EV) ---
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    r_target = ds["r"].astype(float) if "r" in ds.columns else None
+    reward_model = None
+    reward_spearman = 0.0
+    reward_trusted = False
+    if r_target is not None:
+        reward_spearman = _reward_walk_forward(
+            X, r_target, entry_times, label_end, n_folds, DEFAULT_HYPERPARAMS)
+        reward_model = HistGradientBoostingRegressor(**DEFAULT_HYPERPARAMS)
+        reward_model.fit(X.iloc[fit_mask], r_target.iloc[fit_mask])
+
     n_train = int(fit_mask.sum())
     n_valid = int(n - cal_split)
     trusted = bool(n_train >= min_trades and auc > 0.53 and brier < brier_baseline)
+    # The reward head earns trust from OOS rank skill (Spearman) — a modest bar,
+    # since even weak per-trade E[R] ranking beats a global constant.
+    reward_trusted = bool(reward_model is not None and n_train >= min_trades
+                          and reward_spearman > 0.05)
 
     meta = {
         "feature_columns": list(X.columns),
@@ -188,18 +238,22 @@ def train(dataset_path: str = "reports/dataset.parquet",
         "brier_baseline": round(float(brier_baseline), 4),
         "base_rate": round(base_rate, 4),
         "calibrated": bool(model is not base),
+        "has_reward_head": bool(reward_model is not None),
+        "reward_spearman": round(float(reward_spearman), 4),
+        "reward_trusted": reward_trusted,
         "trained_at": utcnow_iso(),
         "min_trades": min_trades,
         "trusted": trusted,
     }
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "wb") as f:
-        pickle.dump({"model": model, "meta": meta}, f)
+        pickle.dump({"model": model, "reward_model": reward_model, "meta": meta}, f)
 
     log.info("purged WF: AUC=%.3f±%.3f Brier=%.3f±%.3f (baseline %.3f) over %d folds; "
-             "fit n=%d, calib n=%d, calibrated=%s -> %s",
+             "reward Spearman=%.3f (trusted=%s); fit n=%d, calib n=%d, calibrated=%s -> %s",
              auc, auc_std, brier, brier_std, brier_baseline, len(aucs),
-             n_train, n_valid, meta["calibrated"], out_path)
+             reward_spearman, reward_trusted, n_train, n_valid,
+             meta["calibrated"], out_path)
     if not trusted:
         log.warning("model NOT trusted (needs n_train>=%d, OOS AUC>0.53, OOS Brier<%.3f; "
                     "got n=%d, AUC=%.3f, Brier=%.3f) — the live blend will ignore it "
