@@ -92,6 +92,27 @@
   - **Phase 4 essentially complete** — the dashboard is a full matte quant terminal: live overlays+RSI,
     pattern markers, breadth, reliability/feature-importance analytics, funding/OI/basis/liquidations,
     TF switcher, symbol search, real sparklines, live price_tick. Remaining is optional polish only.
+- **🟡 Phase 5 (robustness & trust) in progress:**
+  - **P5-robustness** (`1bfd0b9`): `algotrader/backtest/robustness.py` — pure-stat **deflated Sharpe**
+    (Bailey/López de Prado: corrects raw Sharpe for #trials + track length + skew/kurtosis via
+    expected-max-Sharpe under the null), **PBO via CSCV** (combinatorially-symmetric cross-validation over
+    a period×setup-kind return matrix), and **circular-block-bootstrap** expectancy CI. Acklam inverse-normal.
+    `backtest.py` gained `--trials` (default 50, deflates the Sharpe), `_kind_period_matrix`, and
+    `_write_robustness` → `reports/robustness.json`. Tests → 154 (7 robustness + 4 account).
+  - **P5-account** (`1bfd0b9`): `algotrader/backtest/account.py` — event-driven **account-level backtester**
+    (heapq concurrency capped at `max_concurrent_positions`, **compounding** at `risk_per_trade_pct` of live
+    equity, real spans from `entry+duration×tf_minutes`) → currency CAGR / max-DD / time-under-water / Sharpe
+    + **Monte-Carlo ruin probability** + MC drawdown p95 (reshuffled R series). Downsampled equity curve.
+  - **P5-dashboard** (`1f887d8`, verified live): `/api/analytics/robustness` endpoint, `RobustnessReport`
+    type, and two Analytics sections — **"Robustness — is the edge real?"** (deflated-Sharpe + PBO tiles +
+    95% bootstrap expectancy CI) and **"Account simulation (compounded)"** (CAGR / max-DD / ruin prob / TUW /
+    MC-DD p95 / final equity + equity sparkline). Verified in the matte theme (present:true, dsr 0.9991,
+    pbo 0, bootstrap 0.67R [0.40, 0.91] · 100% positive; account CAGR/DD render). Note: the offline CAGR is a
+    synthetic-data artifact (clean edge over a tiny span), not a bug — the math is honest.
+  - **Remaining Phase 5 (need a trained reward-head model + more history to do honestly):** nested
+    walk-forward + FDR for `tune_thresholds.py`/`analyze_factors.py` (today they grid-search the full
+    in-sample set — data-snooping); parameter-stability heatmaps; backtest realism (next-bar-open entry,
+    gap-through-stop slippage, funding accrual, point-in-time survivorship-free universe).
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
