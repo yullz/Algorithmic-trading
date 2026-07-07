@@ -53,6 +53,21 @@ def _r_squared(x: np.ndarray, y: np.ndarray, coef) -> float:
     return 1.0 - ss_res / ss_tot
 
 
+def _fresh_break(prev_close: float, last_close: float, level: float,
+                 bullish: bool) -> bool:
+    """True only on the bar the close FIRST crosses `level` in the given
+    direction — previous bar on the wrong side, current bar through it.
+
+    Without this gate a breakout/reversal pattern re-emits on EVERY bar while
+    price merely remains beyond the level, which inflates the confluence score
+    and pollutes each factor's win-rate calibration with stale repeats of the
+    same move.
+    """
+    if bullish:
+        return prev_close <= level < last_close
+    return prev_close >= level > last_close
+
+
 def _cluster_levels(prices: list[float], band: float) -> list[tuple[float, int]]:
     """Group pivot prices within `band` of the running cluster mean ->
     [(level, touches)] sorted by touches desc."""
@@ -109,7 +124,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         if tol(close[a], close[b]) and (b - a) >= order:
             trough = close[a:b].min()
             neckline = trough
-            if last_close < neckline:  # confirmed breakdown
+            if _fresh_break(prev_close, last_close, neckline, bullish=False):
                 height = max(close[a], close[b]) - trough
                 out.append(PatternMatch(
                     "double_top", SetupKind.REVERSAL, Bias.BEARISH,
@@ -122,7 +137,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         if tol(close[a], close[b]) and (b - a) >= order:
             peak = close[a:b].max()
             neckline = peak
-            if last_close > neckline:
+            if _fresh_break(prev_close, last_close, neckline, bullish=True):
                 height = peak - min(close[a], close[b])
                 out.append(PatternMatch(
                     "double_bottom", SetupKind.REVERSAL, Bias.BULLISH,
@@ -137,7 +152,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         if (tol(close[a], close[b], 0.025) and tol(close[b], close[c3], 0.025)
                 and tol(close[a], close[c3], 0.025) and (c3 - a) >= 2 * order):
             neck = float(close[a:c3].min())
-            if last_close < neck:
+            if _fresh_break(prev_close, last_close, neck, bullish=False):
                 top = float(max(close[a], close[b], close[c3]))
                 out.append(PatternMatch(
                     "triple_top", SetupKind.REVERSAL, Bias.BEARISH,
@@ -150,7 +165,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         if (tol(close[a], close[b], 0.025) and tol(close[b], close[c3], 0.025)
                 and tol(close[a], close[c3], 0.025) and (c3 - a) >= 2 * order):
             neck = float(close[a:c3].max())
-            if last_close > neck:
+            if _fresh_break(prev_close, last_close, neck, bullish=True):
                 bot = float(min(close[a], close[b], close[c3]))
                 out.append(PatternMatch(
                     "triple_bottom", SetupKind.REVERSAL, Bias.BULLISH,
@@ -165,7 +180,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         # head must clear both shoulders by >=1%, shoulders within 2% of each other
         if close[h] > max(close[l], close[r]) * 1.01 and tol(close[l], close[r], 0.02):
             neck = min(close[l:h].min(), close[h:r].min()) if r > h else close[l:r].min()
-            if last_close < neck:
+            if _fresh_break(prev_close, last_close, neck, bullish=False):
                 height = close[h] - neck
                 out.append(PatternMatch(
                     "head_and_shoulders", SetupKind.REVERSAL, Bias.BEARISH,
@@ -177,7 +192,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         l, h, r = lo_idx[-3], lo_idx[-2], lo_idx[-1]
         if close[h] < min(close[l], close[r]) * 0.99 and tol(close[l], close[r], 0.02):
             neck = max(close[l:h].max(), close[h:r].max()) if r > h else close[l:r].max()
-            if last_close > neck:
+            if _fresh_break(prev_close, last_close, neck, bullish=True):
                 height = neck - close[h]
                 out.append(PatternMatch(
                     "inverse_head_and_shoulders", SetupKind.REVERSAL, Bias.BULLISH,
@@ -200,27 +215,27 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         prior_low = float(low[-(win + 1):-1].min())
         rng = prior_high - prior_low
         if is_flat(hslope) and rising(lslope):        # ascending -> bullish
-            if last_close > prior_high:
+            if _fresh_break(prev_close, last_close, prior_high, bullish=True):
                 out.append(PatternMatch(
                     "ascending_triangle", SetupKind.BREAKOUT, Bias.BULLISH, 0.6,
                     base + ls[0], last + base, breakout_level=prior_high,
                     target_level=prior_high + rng, invalidation_level=prior_low,
                     note="flat top, rising lows, broke prior high", family="chart"))
         elif is_flat(lslope) and falling(hslope):     # descending -> bearish
-            if last_close < prior_low:
+            if _fresh_break(prev_close, last_close, prior_low, bullish=False):
                 out.append(PatternMatch(
                     "descending_triangle", SetupKind.BREAKOUT, Bias.BEARISH, 0.6,
                     base + hs[0], last + base, breakout_level=prior_low,
                     target_level=prior_low - rng, invalidation_level=prior_high,
                     note="flat bottom, falling highs, broke prior low", family="chart"))
         elif falling(hslope) and rising(lslope):      # symmetrical -> either way
-            if last_close > prior_high:
+            if _fresh_break(prev_close, last_close, prior_high, bullish=True):
                 out.append(PatternMatch(
                     "symmetrical_triangle_break_up", SetupKind.BREAKOUT, Bias.BULLISH,
                     0.55, base + ls[0], last + base, breakout_level=prior_high,
                     target_level=prior_high + rng, invalidation_level=prior_low,
                     family="chart"))
-            elif last_close < prior_low:
+            elif _fresh_break(prev_close, last_close, prior_low, bullish=False):
                 out.append(PatternMatch(
                     "symmetrical_triangle_break_down", SetupKind.BREAKOUT, Bias.BEARISH,
                     0.55, base + hs[0], last + base, breakout_level=prior_low,
@@ -237,14 +252,16 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         gap_end = up_line - lo_line
         converging = gap_start > 0 and gap_end < 0.7 * gap_start
         hs_n, ls_n = hfit[0] / mean_price, lfit[0] / mean_price
-        if converging and rising(hs_n) and rising(ls_n) and last_close < lo_line:
+        if (converging and rising(hs_n) and rising(ls_n)
+                and _fresh_break(prev_close, last_close, lo_line, bullish=False)):
             out.append(PatternMatch(
                 "rising_wedge", SetupKind.REVERSAL, Bias.BEARISH, 0.58,
                 base + start, last + base, breakout_level=lo_line,
                 target_level=lo_line - gap_start,
                 invalidation_level=float(close[hs].max()),
                 note="rising wedge support broken", family="chart"))
-        if converging and falling(hs_n) and falling(ls_n) and last_close > up_line:
+        if (converging and falling(hs_n) and falling(ls_n)
+                and _fresh_break(prev_close, last_close, up_line, bullish=True)):
             out.append(PatternMatch(
                 "falling_wedge", SetupKind.REVERSAL, Bias.BULLISH, 0.58,
                 base + start, last + base, breakout_level=up_line,
@@ -301,7 +318,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         depth = rim - float(cup.min())
         if depth < 2 * atr or float(handle.min()) < rim - 0.38 * depth:
             continue
-        if last_close > rim:
+        if _fresh_break(prev_close, last_close, rim, bullish=True):
             out.append(PatternMatch(
                 "cup_and_handle", SetupKind.CONTINUATION, Bias.BULLISH, 0.6,
                 base + len(d) - 1 - W, last + base, breakout_level=rim,
@@ -324,7 +341,7 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         if _r_squared(x, seg, coef) < 0.5:
             continue
         rim = float(seg[:max(len(seg) // 5, 5)].max())
-        if last_close > rim:
+        if _fresh_break(prev_close, last_close, rim, bullish=True):
             out.append(PatternMatch(
                 "rounding_bottom", SetupKind.REVERSAL, Bias.BULLISH, 0.55,
                 base + len(d) - 1 - W, last + base, breakout_level=rim,
@@ -409,13 +426,13 @@ def detect(df: pd.DataFrame, lookback: int = 120, order: int = 3) -> list[Patter
         prior_high = high[-(window + 1):-1].max()
         prior_low = low[-(window + 1):-1].min()
         rng_h = prior_high - prior_low
-        if last_close > prior_high:
+        if _fresh_break(prev_close, last_close, prior_high, bullish=True):
             out.append(PatternMatch(
                 "range_breakout_up", SetupKind.BREAKOUT, Bias.BULLISH, 0.55,
                 last + base - window, last + base, breakout_level=prior_high,
                 target_level=prior_high + rng_h, invalidation_level=prior_low,
                 note=f"broke {window}-bar high", family="chart"))
-        elif last_close < prior_low:
+        elif _fresh_break(prev_close, last_close, prior_low, bullish=False):
             out.append(PatternMatch(
                 "range_breakout_down", SetupKind.BREAKOUT, Bias.BEARISH, 0.55,
                 last + base - window, last + base, breakout_level=prior_low,

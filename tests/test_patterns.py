@@ -386,3 +386,37 @@ def test_liquidity_sr_retest_uses_declining_volume():
     ev_list = liquidity.detect_sr_retest(df)
     names = {e.name for e in ev_list}
     assert "sr_break_retest_bull" not in names
+
+
+# --------------------------------------------------------------------------- #
+# Fresh-break gating (patterns must not re-fire every bar while price stays out)
+# --------------------------------------------------------------------------- #
+def test_fresh_break_helper():
+    from algotrader.patterns.chart_patterns import _fresh_break
+    assert _fresh_break(99.0, 101.0, 100.0, bullish=True)
+    assert not _fresh_break(101.0, 102.0, 100.0, bullish=True)   # already above
+    assert not _fresh_break(98.0, 99.0, 100.0, bullish=True)     # never crossed
+    assert _fresh_break(101.0, 99.0, 100.0, bullish=False)
+    assert not _fresh_break(99.0, 98.0, 100.0, bullish=False)    # already below
+    assert not _fresh_break(102.0, 101.0, 100.0, bullish=False)  # never crossed
+
+
+def test_chart_pattern_breakout_does_not_refire_when_stale():
+    """A range breakout fires on the break bar but not again while price simply
+    stays beyond the level."""
+    rng = np.random.default_rng(0)
+    n = 60
+    base = 100 + rng.uniform(-1.5, 1.5, n)  # tight range
+    df = pd.DataFrame({"open": base, "high": base + 1.0, "low": base - 1.0,
+                       "close": base, "volume": np.full(n, 100.0)})
+    brk = pd.DataFrame({"open": [102.0], "high": [108.0], "low": [101.5],
+                        "close": [107.0], "volume": [100.0]})
+    f1 = pd.concat([df, brk], ignore_index=True)
+    # A newly-gated reversal (triple_bottom) fires on the fresh neckline break.
+    assert "triple_bottom" in {m.name for m in chart_patterns.detect(f1)}
+
+    stay = pd.DataFrame({"open": [107.0], "high": [107.5], "low": [106.0],
+                         "close": [107.2], "volume": [100.0]})
+    f2 = pd.concat([f1, stay], ignore_index=True)
+    # Price merely stays above the neckline -> stale -> must NOT re-fire.
+    assert "triple_bottom" not in {m.name for m in chart_patterns.detect(f2)}
