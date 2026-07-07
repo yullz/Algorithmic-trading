@@ -33,10 +33,13 @@
   - **P2c** two-head EV selector (`66116bd`): E[R] reward regressor (purged-WF Spearman rank-skill gate),
     `Signal.ml_ev_r`, and `scanner._rank_of` now ranks by learned **per-trade E[R] × bias** instead of the
     global-constant `EV·confidence·bias` heuristic. First Scanner tests added. Tests → 127.
-  - **Remaining Phase 2:** real derivatives / order-flow / breadth evidence (**P2d**, order-flow parts need
-    Phase 3 streaming); cross-sectional rank/z-score features (**P2b**, needs timestamp-aligned universe
-    layout); pattern hardening (**P2f**: fresh-break gating, high/low pivots, volume confirmation,
-    calibrated confidence).
+  - **P2d (breadth)** (`0303175`): `indicators/breadth.py` — universe risk-on/off (% above EMA50/EMA200,
+    adv/decline) surfaced in the scan output and used as a bounded ±10% ranking tilt. Deliberately a
+    selection-time tilt, NOT per-symbol evidence (avoids re-introducing the P1c skew). Tests → 131.
+  - **Remaining Phase 2:** derivatives z-score / basis evidence (**P2d-deriv**) → deferred to **Phase 3**
+    (needs historical funding/OI plumbed into the backtest so it calibrates, instead of firing live-only);
+    cross-sectional rank/z-score features (**P2b**, needs timestamp-aligned universe layout); pattern
+    hardening (**P2f**: fresh-break gating, high/low pivots, volume confirmation).
 
 ---
 
