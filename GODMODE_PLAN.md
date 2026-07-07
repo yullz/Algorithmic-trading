@@ -72,9 +72,13 @@
   - **P4-2** (`05d0864`): live `price_tick` handling — positions' price/PnL/MTM update between scans when
     streaming is on; fixed the stale `launch.json`. Verified live in the browser (server + dashboard,
     breadth data, WS connected, zero console errors).
-  - **Remaining Phase 4:** full visual redesign across the views — live charts with indicator+pattern
-    overlays, calibration-reliability + ML-EV + SHAP analytics, microstructure panels, and a polish pass
-    (best done iteratively with the server running + preview screenshots).
+  - **P4-3** (`9757c68`): Signal-Detail chart **indicator overlays** — `/api/candles` returns EMA20/50/200,
+    VWAP, Bollinger series; chart draws the EMA ribbon + dashed VWAP + Bollinger band. Verified live.
+  - **P4-4** (`227913a`): **RSI oscillator sub-pane** with 30/70 guides below the price panel (+ macd_hist
+    exposed). Verified live — the chart is now price+overlays / RSI / volume.
+  - **Remaining Phase 4:** replace the fabricated ScannerView sparklines with real close-series; surface
+    ml_ev_r (reward head) + breadth panel; Analytics cockpit (calibration-reliability plot, ML
+    feature-importance); pattern-geometry overlays on the chart; microstructure panels; broader polish.
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
