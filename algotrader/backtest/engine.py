@@ -23,6 +23,7 @@ import pandas as pd
 from ..models import RiskConfig, Side
 from ..risk.manager import RiskManager
 from ..signals.engine import SignalEngine
+from .account import _TF_MIN
 
 
 def _atr_series(df: pd.DataFrame, period: int = 14) -> pd.Series:
@@ -263,6 +264,7 @@ class Backtester:
         # ATR for adaptive volatility-target sizing
         atr = _atr_series(df, period=14)
         median_atr = atr.median()
+        bar_minutes = float(_TF_MIN.get(timeframe, 60))  # for funding accrual
         i = max(self.warmup, start if start is not None else self.warmup)
         stop_at = min(n - 1, end if end is not None else n - 1)
         while i < stop_at:
@@ -285,7 +287,11 @@ class Backtester:
             if plan is None or not plan.is_actionable(self.risk.cfg):
                 i += 1
                 continue
-            outcome, exit_i, r = self._simulate(df, i, plan)
+            sim = self._simulate(df, i, plan, bar_minutes=bar_minutes)
+            if sim is None:  # e.g. signal on the last bar with no next open to fill at
+                i += 1
+                continue
+            outcome, exit_i, r = sim
             trades.append({
                 "entry_idx": i, "exit_idx": exit_i, "side": plan.side.value,
                 "entry": plan.entry, "stop": plan.stop_loss, "r": r,
@@ -306,58 +312,107 @@ class Backtester:
             i = max(exit_i, i + 1)  # no overlapping trades
         return self._aggregate(trades)
 
-    def _simulate(self, df: pd.DataFrame, entry_i: int, plan) -> tuple[str, int, float]:
+    def _simulate(self, df: pd.DataFrame, entry_i: int, plan,
+                  bar_minutes: float | None = None) -> tuple[str, int, float] | None:
         """Simulate the FULL take-profit ladder with partial exits and a
         move-to-breakeven-after-TP1 stop, returning the net realized R after
-        round-trip taker fees and slippage. A win is realized_R > 0 — so the
-        win rate and the realized payoff come from the same model and cannot
-        be inconsistent."""
+        round-trip taker fees, slippage, gap-through-stop slippage and funding.
+        A win is realized_R > 0 — so the win rate and the realized payoff come
+        from the same model and cannot be inconsistent.
+
+        Realism knobs (RiskConfig, defaults on) — see GODMODE_PLAN.md Phase 5:
+          * next_bar_open_entry: fill at the open of the bar AFTER the signal,
+            not the signal bar's close (removes a one-bar look-ahead). R is then
+            measured off the actual fill; 1R stays the plan's stop distance.
+          * gap_fill_stops: a bar that opens beyond the stop fills at that open.
+          * funding: a per-bar carry over the held fraction.
+        Returns None when the trade cannot be filled (a signal on the last bar
+        has no next-bar open); the caller skips it.
+        """
         n = len(df)
+        cfg = self.risk.cfg
         sgn = plan.side.sign
-        entry, stop = plan.entry, plan.stop_loss
-        stop_dist = abs(entry - stop)
+        stop = plan.stop_loss
+        # 1R is the risk the position was sized on: the planned stop distance.
+        stop_dist = abs(plan.entry - stop)
+        if stop_dist <= 0:
+            return None
+        open_ = df["open"].to_numpy()
         high = df["high"].to_numpy()
         low = df["low"].to_numpy()
         close = df["close"].to_numpy()
+
+        # Entry fill: next bar's open (realistic) or the signal-bar close (legacy).
+        if getattr(cfg, "next_bar_open_entry", False):
+            if entry_i + 1 >= n:
+                return None  # signal on the last bar — nothing to fill against
+            entry = float(open_[entry_i + 1])
+        else:
+            entry = plan.entry
+
         end = min(entry_i + 1 + self.horizon, n)
 
         # Round-trip execution costs in R units so simulation is net-of-fee.
-        cfg = self.risk.cfg
         fee_rate = cfg.taker_fee * 2 + cfg.slippage_pct * 2
-        fees_r = fee_rate * entry / stop_dist if stop_dist > 0 else 0.0
+        fees_r = fee_rate * entry / stop_dist
+
+        gap_fill = getattr(cfg, "gap_fill_stops", False)
+        # Per-bar funding carry in R (a time-based cost on the still-open size).
+        funding_per_bar_r = 0.0
+        if (getattr(cfg, "apply_funding", False) and cfg.funding_rate_8h
+                and bar_minutes):
+            interval_min = max(cfg.funding_interval_hours * 60.0, 1e-9)
+            funding_per_bar_r = (sgn * cfg.funding_rate_8h
+                                 * (bar_minutes / interval_min) * entry / stop_dist)
 
         remaining = 1.0
         realized_r = 0.0
+        funding_r = 0.0            # accumulated funding cost (R) on the open fraction
         cur_stop = stop
         hit = [False] * len(plan.take_profits)
 
+        def _net(rr: float, fr: float) -> tuple[str, int, float]:
+            net = rr - fr
+            return ("win" if net > 0 else "loss"), j, float(net)
+
         time_stop = plan.time_stop_candles
         for j in range(entry_i + 1, end):
+            # Funding accrues on the fraction still open, for each bar held.
+            funding_r += remaining * funding_per_bar_r
             # Time stop: close at market if the trade exceeded its max duration.
             if time_stop > 0 and (j - entry_i) >= time_stop:
                 realized_r += remaining * (sgn * (close[j] - entry) / stop_dist - fees_r)
-                return ("win" if realized_r > 0 else "loss"), j, float(realized_r)
+                return _net(realized_r, funding_r)
             # Stop is checked first on ambiguous bars (conservative).
             stopped = (low[j] <= cur_stop) if plan.side == Side.LONG else (high[j] >= cur_stop)
             if stopped:
-                r_at_stop = sgn * (cur_stop - entry) / stop_dist  # ~0 if breakeven
+                # Gap-through-stop: if the bar OPENED beyond the stop, you fill at
+                # the (worse) open, not the stop level.
+                fill = cur_stop
+                if gap_fill:
+                    fill = (min(open_[j], cur_stop) if plan.side == Side.LONG
+                            else max(open_[j], cur_stop))
+                r_at_stop = sgn * (fill - entry) / stop_dist  # ~0 if breakeven
                 realized_r += remaining * (r_at_stop - fees_r)
-                return ("win" if realized_r > 0 else "loss"), j, float(realized_r)
+                return _net(realized_r, funding_r)
             for k, tp in enumerate(plan.take_profits):
                 reached = (high[j] >= tp.price) if plan.side == Side.LONG else (low[j] <= tp.price)
                 if not hit[k] and reached:
                     hit[k] = True
-                    realized_r += tp.allocation * (tp.r_multiple - fees_r)
+                    # R measured off the ACTUAL fill (tp.r_multiple is relative to
+                    # the plan's signal-close entry, which the fill may differ from).
+                    r_leg = sgn * (tp.price - entry) / stop_dist
+                    realized_r += tp.allocation * (r_leg - fees_r)
                     remaining -= tp.allocation
                     if k == 0:
                         cur_stop = entry  # lock in: move stop to breakeven
             if remaining <= 1e-9:
-                return ("win" if realized_r > 0 else "loss"), j, float(realized_r)
+                return _net(realized_r, funding_r)
 
         # timeout: close the remainder at the horizon close
         j = end - 1
         realized_r += remaining * (sgn * (close[j] - entry) / stop_dist - fees_r)
-        return ("win" if realized_r > 0 else "loss"), j, float(realized_r)
+        return _net(realized_r, funding_r)
 
     def _aggregate(self, trades: list[dict]) -> BacktestResult:
         res = BacktestResult(trades=trades)

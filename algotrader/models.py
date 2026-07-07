@@ -143,6 +143,22 @@ class RiskConfig:
     max_trade_duration_candles: int = 0             # 0 = disabled
     # ---- regime-dependent sizing ----
     volatile_regime_size_factor: float = 0.7
+    # ---- backtest realism (see algotrader/backtest/engine.py::_simulate) ----
+    # Fill entries at the NEXT bar's open, not the signal bar's close: you cannot
+    # act on a bar until it has closed, so the earliest realistic fill is the
+    # open of the following bar. Removes a one-bar look-ahead in every backtest.
+    next_bar_open_entry: bool = True
+    # When a bar gaps through the stop (opens beyond it), fill at the bar's open
+    # — the price you would actually get — not the (better) stop level. This only
+    # ever worsens the fill, so it is the conservative, honest assumption.
+    gap_fill_stops: bool = True
+    # Perpetual funding accrued over the holding period. No historical funding
+    # series exists, so this is a constant per-interval assumption; it defaults
+    # to 0.0 (no drag, no directional bias) and is exposed for scenario analysis.
+    # Longs pay when funding_rate_8h > 0; shorts receive. Set > 0 to stress-test.
+    apply_funding: bool = True
+    funding_rate_8h: float = 0.0
+    funding_interval_hours: float = 8.0
 
 
 @dataclass
