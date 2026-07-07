@@ -41,6 +41,13 @@ def test_parser_defaults():
     assert args.export_dataset is False
     assert args.deep is False
     assert args.workers == 4
+    assert args.min_history_frac == 0.0  # survivorship guard off by default
+
+
+def test_parser_min_history_frac():
+    ap = _build_parser()
+    args = ap.parse_args(["--min-history-frac", "0.5"])
+    assert args.min_history_frac == 0.5
 
 
 def test_parser_deep_and_multi_symbol():

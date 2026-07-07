@@ -76,6 +76,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--trials", type=int, default=50,
                     help="number of parameter/strategy variations tried during "
                          "development, used to DEFLATE the Sharpe (be honest here)")
+    ap.add_argument("--min-history-frac", type=float, default=0.0,
+                    help="survivorship guard: drop symbols whose available history "
+                         "covers less than this fraction of the requested candle "
+                         "window (e.g. 0.5). 0 = keep all (default)")
     return ap
 
 
@@ -140,23 +144,51 @@ def _fetch_data(feed: DataFeed, symbol: str, timeframe: str, limit: int,
 
 
 def _fetch_all(pairs: list[tuple[str, str]], cfg: AppConfig,
-               args: argparse.Namespace) -> dict[tuple[str, str], pd.DataFrame]:
-    """Fetch all OHLCV upfront so CPU-bound workers are not blocked on I/O."""
+               args: argparse.Namespace) -> tuple[dict, dict]:
+    """Fetch all OHLCV upfront so CPU-bound workers are not blocked on I/O.
+
+    Returns (frames, coverage). `coverage` records every fetched pair's first
+    candle and how much of the requested window it spans — the point-in-time /
+    survivorship signal. A pair listing after the window start naturally has
+    fewer bars; the `--min-history-frac` guard drops pairs too short to compare
+    fairly so recent listings do not dominate the pooled calibration.
+    """
     if args.offline:
-        return {}
+        return {}, {}
     feed = DataFeed(cfg.exchange_id, cfg.market_type, cfg.api_key, cfg.api_secret)
     fetch_sem = Semaphore(max(1, cfg.scan_concurrency))
     limit = _DEEP_LIMIT if args.deep else args.limit
     use_history = (limit > _PAGE_CAP) or args.deep
+    min_frac = max(0.0, float(getattr(args, "min_history_frac", 0.0) or 0.0))
+    min_bars = int(min_frac * limit)
     frames: dict[tuple[str, str], pd.DataFrame] = {}
+    coverage: dict[tuple[str, str], dict] = {}
+    skipped_short = 0
     for symbol, timeframe in pairs:
         try:
             df = _fetch_data(feed, symbol, timeframe, limit, use_history, fetch_sem)
-            if df is not None and len(df) >= 60:
-                frames[(symbol, timeframe)] = df
+            if df is None or len(df) < 60:
+                continue
+            n_bars = len(df)
+            coverage[(symbol, timeframe)] = {
+                "first_candle": str(df.index[0]),
+                "last_candle": str(df.index[-1]),
+                "bars": n_bars,
+                "covers_frac": round(n_bars / limit, 3) if limit else 0.0,
+            }
+            # Point-in-time / survivorship guard: a recently-listed symbol has far
+            # less history than the requested window; counting its short life in
+            # pooled calibration overweights survivors that only just appeared.
+            if min_bars and n_bars < min_bars:
+                skipped_short += 1
+                continue
+            frames[(symbol, timeframe)] = df
         except Exception as e:
             log.warning("%s %s fetch failed: %s", symbol, timeframe, e)
-    return frames
+    if skipped_short:
+        log.info("survivorship guard: dropped %d pair(s) with < %.0f%% (%d bars) of "
+                 "the %d-bar window", skipped_short, min_frac * 100, min_bars, limit)
+    return frames, coverage
 
 
 def _run_one(args_tuple) -> dict:
@@ -247,9 +279,10 @@ def main() -> None:
     # Fetch all data upfront so CPU-bound backtests can run in parallel processes
     # without fighting the GIL or blocking on network I/O.
     frames: dict[tuple[str, str], pd.DataFrame] = {}
+    coverage: dict[tuple[str, str], dict] = {}
     if not args.offline:
         log.info("fetching OHLCV for %d pairs ...", len(pairs))
-        frames = _fetch_all(pairs, cfg, args)
+        frames, coverage = _fetch_all(pairs, cfg, args)
         log.info("fetched %d/%d pairs", len(frames), len(pairs))
 
     # Serialize config into plain dicts for picklable worker args.
@@ -304,10 +337,16 @@ def main() -> None:
         if r["result"] is not None:
             res = r["result"]
             all_trades.extend(res.trades)
+            cov = coverage.get((r["symbol"], r["tf"]), {})
             detail.append({
                 "symbol": r["symbol"], "timeframe": r["tf"],
                 "n_trades": len(res.trades),
                 "summary": res.summary,
+                # point-in-time transparency: when this symbol's data begins and
+                # how much of the requested window it actually spans.
+                "first_candle": cov.get("first_candle"),
+                "bars": cov.get("bars"),
+                "history_covers_frac": cov.get("covers_frac"),
                 "factor_win_rate": {k: round(v, 4)
                                     for k, v in res.factor_win_rate.items()},
                 "kind_win_rate": {k: round(v, 4)
@@ -323,6 +362,22 @@ def main() -> None:
         print(f"  {f:28s} {wr:.0%}")
     suffix = args.output_suffix
 
+    # Point-in-time / survivorship disclosure. The set of symbols is today's
+    # top-volume LISTINGS: delisted names are absent and cannot be recovered
+    # offline (a residual bias we disclose rather than silently hide). Coverage
+    # tells you how many names are recent listings with little history.
+    recent = sum(1 for c in coverage.values() if (c.get("covers_frac") or 0) < 0.5)
+    survivorship = {
+        "note": ("Universe = today's top-volume listings; delisted symbols are "
+                 "absent (unfixable offline). covers_frac = fetched bars / "
+                 "requested window; recent listings span little history."),
+        "pairs_fetched": len(coverage),
+        "pairs_backtested": len(frames) if not args.offline else len(detail),
+        "pairs_dropped_short": (len(coverage) - len(frames)) if not args.offline else 0,
+        "recent_listings_lt50pct": recent,
+        "min_history_frac": max(0.0, float(getattr(args, "min_history_frac", 0.0) or 0.0)),
+    }
+
     # Persist reports (in-sample diagnostics).
     os.makedirs("reports", exist_ok=True)
     detail_path = f"reports/backtest_detail{suffix}.json"
@@ -335,6 +390,7 @@ def main() -> None:
             "timeframes": timeframes,
             "source": "synthetic" if args.offline else cfg.exchange_id,
             "limit": _DEEP_LIMIT if args.deep else args.limit,
+            "survivorship": survivorship,
         }, f, indent=2)
 
     report = combined.to_report()
