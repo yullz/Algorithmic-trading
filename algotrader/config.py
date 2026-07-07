@@ -35,6 +35,10 @@ class AppConfig:
     min_families: int = 3
     htf_veto: bool = False
     regime_gating: bool = True
+    # calibration governance (see backtest.py / winrate.py)
+    calibration_half_life_days: float = 45.0    # recency decay half-life (calendar days)
+    calibration_min_wilson_lower: float = 0.35  # drop factors whose OOS Wilson-lower is below this
+    label_horizon_candles: int = 48             # bars a trade is simulated/held; also the live time-stop
     # universe selection
     universe_mode: str = "static"        # "static" (symbols list) | "top_volume"
     universe_size: int = 150
@@ -101,9 +105,18 @@ def load_config(path: str = "config.yaml") -> AppConfig:
 
     allow_live = os.getenv("ALLOW_LIVE_TRADING", "false").strip().lower() == "true"
 
+    risk_cfg = _risk_from(raw.get("risk", {}))
+    label_horizon = int(cal.get("label_horizon_candles", 48))
+    # Single knob for the holding/label horizon: the backtest simulates and the
+    # live executor time-stops a trade after this many bars, so the calibrated
+    # label ("profitable within N bars") matches what is actually traded. An
+    # explicit risk.max_trade_duration_candles > 0 still wins.
+    if risk_cfg.max_trade_duration_candles <= 0:
+        risk_cfg.max_trade_duration_candles = label_horizon
+
     return AppConfig(
         raw=raw,
-        risk=_risk_from(raw.get("risk", {})),
+        risk=risk_cfg,
         exchange_id=os.getenv("EXCHANGE", exch.get("id", "bybit")),
         market_type=exch.get("market_type", "swap"),
         symbols=uni.get("symbols", ["BTC/USDT:USDT"]),
@@ -117,6 +130,9 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         min_families=int(sig.get("min_families", 3)),
         htf_veto=bool(sig.get("htf_veto", False)),
         regime_gating=bool(sig.get("regime_gating", True)),
+        calibration_half_life_days=float(cal.get("half_life_days", 45.0)),
+        calibration_min_wilson_lower=float(cal.get("min_wilson_lower", 0.35)),
+        label_horizon_candles=label_horizon,
         universe_mode=uni.get("mode", "static"),
         universe_size=int(uni.get("size", 150)),
         scan_interval_sec=int(scan.get("interval_sec", 300)),

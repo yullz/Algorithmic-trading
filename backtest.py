@@ -172,7 +172,7 @@ def _run_one(args_tuple) -> dict:
             regime_gating=cfg_dict["regime_gating"],
             max_stop_atr_mult=cfg_dict["risk"]["max_stop_atr_mult"])
         risk = RiskManager(RiskConfig(**cfg_dict["risk"]))
-        bt = Backtester(engine, risk)
+        bt = Backtester(engine, risk, horizon=cfg_dict.get("label_horizon_candles", 48))
         res = bt.run(df, symbol, timeframe, htf_full=htf_full)
         log.info("%s %s -> %s", symbol, timeframe, json.dumps(res.summary))
         return {"symbol": symbol, "tf": timeframe, "result": res,
@@ -199,7 +199,7 @@ def _run_one_offline(args_tuple) -> dict:
             regime_gating=cfg_dict["regime_gating"],
             max_stop_atr_mult=cfg_dict["risk"]["max_stop_atr_mult"])
         risk = RiskManager(RiskConfig(**cfg_dict["risk"]))
-        bt = Backtester(engine, risk)
+        bt = Backtester(engine, risk, horizon=cfg_dict.get("label_horizon_candles", 48))
         res = bt.run(df, symbol, timeframe, htf_full=htf_full)
         log.info("%s %s -> %s", symbol, timeframe, json.dumps(res.summary))
         return {"symbol": symbol, "tf": timeframe, "result": res,
@@ -257,6 +257,7 @@ def main() -> None:
         "htf_veto": cfg.htf_veto,
         "regime_gating": cfg.regime_gating,
         "context_timeframe": cfg.context_timeframe,
+        "label_horizon_candles": cfg.label_horizon_candles,
         "risk": cfg.risk.__dict__,
     }
 
@@ -312,18 +313,14 @@ def main() -> None:
 
     bt = Backtester(engine, risk)
     combined = bt._aggregate(all_trades)
-    print("\n===== AGGREGATE =====")
+    print("\n===== AGGREGATE (IN-SAMPLE) =====")
     print(json.dumps(combined.summary, indent=2))
-    print("\nPer-factor win rates (samples>=25 written to calibration):")
+    print("\nPer-factor win rates (in-sample; samples>=25):")
     for f, wr in sorted(combined.factor_win_rate.items(), key=lambda x: -x[1]):
         print(f"  {f:28s} {wr:.0%}")
     suffix = args.output_suffix
-    calib_path = cfg.calibration_file.replace(".json", f"{suffix}.json") if suffix else cfg.calibration_file
-    calib = combined.write_calibration(calib_path)
-    n_factor_keys = sum(1 for k in calib if not k.startswith("_"))
-    log.info("wrote %d calibrated factors -> %s", n_factor_keys, calib_path)
 
-    # Persist reports.
+    # Persist reports (in-sample diagnostics).
     os.makedirs("reports", exist_ok=True)
     detail_path = f"reports/backtest_detail{suffix}.json"
     with open(detail_path, "w", encoding="utf-8") as f:
@@ -356,16 +353,56 @@ def main() -> None:
         log.info("wrote %s (%d rows, %d cols) — train the "
                  "meta-model with: python -m algotrader.ml.train", ds_path, *ds.shape)
 
-    if args.walkforward:
-        run_walkforward(cfg, symbols, timeframes, args, combined)
+    # ---- Calibration: out-of-sample is the source of truth when available ----
+    calib_path = (cfg.calibration_file.replace(".json", f"{suffix}.json")
+                  if suffix else cfg.calibration_file)
+    _write_calibration(cfg, args, combined, calib_path, symbols, timeframes)
 
-    print("\nReminder: results above are IN-SAMPLE. The walk-forward (--walkforward) "
-          "OOS numbers are the honest test. Past performance != future results.")
+    print("\nReminder: the LIVE calibration is the OUT-OF-SAMPLE (--walkforward) result "
+          "when available — the honest test. Past performance != future results.")
+
+
+def _write_calibration(cfg: AppConfig, args: argparse.Namespace, combined,
+                       calib_path: str, symbols: list[str],
+                       timeframes: list[str]) -> None:
+    """Write the LIVE calibration file.
+
+    With --walkforward it is built from the OUT-OF-SAMPLE trades, gated on each
+    factor's OOS Wilson-lower bound, and the in-sample calibration is saved only
+    as a diagnostic. Without --walkforward the in-sample calibration is written
+    with a loud warning that its rates are optimistically biased.
+    """
+    hl = cfg.calibration_half_life_days
+    if args.walkforward:
+        oos = run_walkforward(cfg, symbols, timeframes, args, combined)
+        insample_path = calib_path.replace(".json", "_insample.json")
+        combined.write_calibration(insample_path, half_life_days=hl)
+        if oos is not None and oos.trades:
+            calib = oos.write_calibration(
+                calib_path, half_life_days=hl,
+                min_wilson_lower=cfg.calibration_min_wilson_lower)
+            n = sum(1 for k in calib if not k.startswith("_"))
+            log.info("wrote %d OUT-OF-SAMPLE calibrated factors -> %s "
+                     "(in-sample diagnostic -> %s)", n, calib_path, insample_path)
+        else:
+            log.warning("walk-forward produced no OOS trades; LIVE calibration left "
+                        "unchanged. In-sample diagnostic -> %s", insample_path)
+    else:
+        calib = combined.write_calibration(calib_path, half_life_days=hl)
+        n = sum(1 for k in calib if not k.startswith("_"))
+        log.warning("wrote %d IN-SAMPLE calibrated factors -> %s. In-sample rates are "
+                    "optimistically biased — re-run with --walkforward to write "
+                    "out-of-sample-validated calibration before live/paper trading.",
+                    n, calib_path)
 
 
 def run_walkforward(cfg: AppConfig, symbols: list[str], timeframes: list[str],
-                    args: argparse.Namespace, in_sample) -> None:
-    """Anchored out-of-sample validation across all symbol/timeframe pairs."""
+                    args: argparse.Namespace, in_sample):
+    """Anchored out-of-sample validation across all symbol/timeframe pairs.
+
+    Returns the aggregated OOS BacktestResult (or None if no folds ran) so the
+    caller can source the live calibration from honest out-of-sample trades.
+    """
     suffix = args.output_suffix
     log.info("running walk-forward (%d folds)...", args.folds)
     oos_trades, all_folds = [], []
@@ -388,7 +425,8 @@ def run_walkforward(cfg: AppConfig, symbols: list[str], timeframes: list[str],
             if df is None or len(df) < 60:
                 continue
             htf_full = DataFeed.resample(df, cfg.context_timeframe)
-            wf = walk_forward(df, symbol, tf, cfg, htf_full=htf_full, folds=args.folds)
+            wf = walk_forward(df, symbol, tf, cfg, htf_full=htf_full, folds=args.folds,
+                              horizon=cfg.label_horizon_candles)
             if wf is None:
                 log.warning("%s %s: not enough data for walk-forward", symbol, tf)
                 continue
@@ -423,6 +461,7 @@ def run_walkforward(cfg: AppConfig, symbols: list[str], timeframes: list[str],
     with open(wf_path, "w", encoding="utf-8") as f:
         json.dump(wf_report, f, indent=2)
     log.info("wrote %s", wf_path)
+    return oos
 
 
 if __name__ == "__main__":

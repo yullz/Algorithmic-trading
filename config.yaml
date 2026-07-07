@@ -53,7 +53,9 @@ risk:
   volatility_target_atr_percentile: 50    # median ATR used as neutral anchor
   kelly_fraction: 0.25                    # quarter-Kelly cap
   # ---- time stop ----
-  max_trade_duration_candles: 0           # 0 = disabled
+  # 0 = inherit calibration.label_horizon_candles (so live/paper trades close on
+  # the SAME horizon the backtest labels on). Set >0 here to override.
+  max_trade_duration_candles: 0
   # ---- regime-dependent sizing ----
   volatile_regime_size_factor: 0.7
 
@@ -92,3 +94,13 @@ execution:
 calibration:
   # Written by backtest.py. Maps setup name (optionally "|regime|tf") -> win rate.
   file: calibration.json
+  # Recency decay half-life in CALENDAR days (recent trades weigh more). Applied
+  # consistently across pooled symbols/timeframes.
+  half_life_days: 45
+  # With --walkforward, a factor is only written to the LIVE calibration if its
+  # out-of-sample Wilson lower bound is at least this — drops factors that only
+  # look good in-sample. (In-sample calibration is still saved as a diagnostic.)
+  min_wilson_lower: 0.35
+  # Bars a trade is simulated/held in the backtest = the ML label horizon. Also
+  # applied as the live time-stop so backtest and live share ONE exit rule.
+  label_horizon_candles: 48

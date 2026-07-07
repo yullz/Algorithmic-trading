@@ -4,7 +4,7 @@ __pycache__/
 .venv/
 venv/
 logs/
-calibration.json
+calibration*.json
 *.log
 .DS_Store
 data_cache/

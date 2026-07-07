@@ -103,9 +103,9 @@ def test_calibration_shrinkage():
         for i in range(25)
     ]
     res = BacktestResult(trades=trades, summary={"win_rate": 0.8})
-    # Use a very long half-life so recency weights are nearly uniform and the
+    # These trades carry no entry_time, so recency weights are uniform and the
     # shrinkage formula can be verified in closed form.
-    cal = res.calibration_dict(min_samples=25, half_life_candles=100_000)
+    cal = res.calibration_dict(min_samples=25, half_life_days=100000)
 
     assert cal["f"]["raw"] == pytest.approx(0.80)
     assert cal["f"]["weighted"] == pytest.approx(0.80, abs=1e-3)
@@ -117,23 +117,26 @@ def test_calibration_shrinkage():
 
 
 def test_calibration_recency_weighting():
-    """With a short half-life, recent outcomes dominate the weighted rate."""
+    """With a short half-life, recent (calendar-time) outcomes dominate."""
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
     trades = []
-    # 20 old losing trades.
+    # 20 old losing trades (days 0..19).
     for i in range(20):
         trades.append({
             "entry_idx": i, "win": False, "r": -1.0,
             "factors": ["f"], "regime": "", "tf": "",
+            "entry_time": (base + timedelta(days=i)).isoformat(),
         })
-    # 20 new winning trades.
-    for i in range(20, 40):
+    # 20 new winning trades (~3 months later, days 90..109).
+    for i in range(20):
         trades.append({
-            "entry_idx": i, "win": True, "r": 1.0,
+            "entry_idx": 20 + i, "win": True, "r": 1.0,
             "factors": ["f"], "regime": "", "tf": "",
+            "entry_time": (base + timedelta(days=90 + i)).isoformat(),
         })
 
     res = BacktestResult(trades=trades, summary={"win_rate": 0.5})
-    cal = res.calibration_dict(min_samples=25, half_life_candles=10)
+    cal = res.calibration_dict(min_samples=25, half_life_days=10)
 
     assert cal["f"]["raw"] == pytest.approx(0.50)
     # Weighted rate should be pulled above 0.5 because recent trades are wins.
@@ -144,16 +147,20 @@ def test_calibration_recency_weighting():
 
 def test_calibration_recency_weighted_payoffs():
     """_avg_win_r / _avg_loss_r should reflect recency weighting."""
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
     trades = [
         {"entry_idx": 0, "win": True, "r": 0.5,
-         "factors": ["f"], "regime": "", "tf": ""},
+         "factors": ["f"], "regime": "", "tf": "",
+         "entry_time": base.isoformat()},                          # old 0.5R win
         {"entry_idx": 100, "win": True, "r": 3.0,
-         "factors": ["f"], "regime": "", "tf": ""},
+         "factors": ["f"], "regime": "", "tf": "",
+         "entry_time": (base + timedelta(days=100)).isoformat()},  # recent 3R win
         {"entry_idx": 101, "win": False, "r": -0.5,
-         "factors": ["f"], "regime": "", "tf": ""},
+         "factors": ["f"], "regime": "", "tf": "",
+         "entry_time": (base + timedelta(days=101)).isoformat()},  # recent 0.5R loss
     ]
     res = BacktestResult(trades=trades, summary={"avg_win_r": 1.0, "avg_loss_r": -1.0})
-    cal = res.calibration_dict(min_samples=1, half_life_candles=10)
+    cal = res.calibration_dict(min_samples=1, half_life_days=10)
 
     # With a very short half-life, the old 0.5R win contributes almost nothing.
     assert cal["_avg_win_r"] > 1.5
@@ -197,3 +204,29 @@ def test_calibration_dict_min_samples_raised():
     assert "thin" not in cal
     cal_loose = res.calibration_dict(min_samples=10)
     assert "thin" in cal_loose
+
+
+def test_calibration_wilson_lower_gating():
+    """min_wilson_lower drops factors whose edge is not confidently above it —
+    the mechanism that keeps in-sample-lucky factors out of live calibration."""
+    trades = []
+    # 'weak': 26 trades at 50% -> Wilson lower ~0.32 (< 0.35) -> dropped.
+    for i in range(26):
+        win = i % 2 == 0
+        trades.append({"entry_idx": i, "win": win, "r": 1.0 if win else -1.0,
+                       "factors": ["weak"], "regime": "", "tf": ""})
+    # 'strong': 30 trades at 80% -> Wilson lower ~0.63 -> kept.
+    for i in range(30):
+        win = i % 5 != 0
+        trades.append({"entry_idx": 100 + i, "win": win, "r": 1.0 if win else -1.0,
+                       "factors": ["strong"], "regime": "", "tf": ""})
+    res = BacktestResult(trades=trades, summary={"win_rate": 0.6})
+
+    gated = res.calibration_dict(min_samples=25, min_wilson_lower=0.35)
+    assert "strong" in gated
+    assert "weak" not in gated
+    # Aggregate payoff keys always survive gating.
+    assert "_overall" in gated
+
+    ungated = res.calibration_dict(min_samples=25, min_wilson_lower=0.0)
+    assert "weak" in ungated and "strong" in ungated

@@ -54,8 +54,33 @@ class BacktestResult:
             "n_trades": len(self.trades),
         }
 
+    @staticmethod
+    def _recency_weights(trades: list[dict], half_life_days: float) -> list[float]:
+        """Calendar-time recency weights (recent trades weigh more), robust to
+        missing/unparseable timestamps.
+
+        Weighting by wall-clock time — not by a per-symbol positional bar index —
+        is essential once trades from many symbols and timeframes are pooled: a
+        trade near the end of an 800-bar 1h series is calendar-recent, but a
+        positional index would rank it as ancient next to a 5000-bar series. When
+        no usable timestamps exist (e.g. hand-built test trades) weights are
+        uniform.
+        """
+        if not trades:
+            return []
+        times = pd.to_datetime([t.get("entry_time", "") for t in trades],
+                               errors="coerce", utc=True)
+        ages_days = (times.max() - times).to_numpy() / np.timedelta64(1, "D")
+        if np.isnan(ages_days).all():
+            return [1.0] * len(trades)
+        max_age = np.nanmax(ages_days)
+        ages_days = np.where(np.isnan(ages_days), max_age, ages_days)  # NaT -> oldest
+        decay = math.log(2) / max(float(half_life_days), 1e-9)
+        return [float(w) for w in np.exp(-decay * ages_days)]
+
     def calibration_dict(self, min_samples: int = 25,
-                         half_life_candles: int = 252) -> dict:
+                         half_life_days: float = 45.0,
+                         min_wilson_lower: float = 0.0) -> dict:
         """Per-factor empirical win rates (only factors with enough samples) plus
         ladder-aware realized payoffs, so the risk engine's EV stays consistent
         with the measured win rate.
@@ -79,20 +104,15 @@ class BacktestResult:
                 "_avg_loss_r": abs(self.summary.get("avg_loss_r", 1.0)),
             }
 
-        max_index = max(t["entry_idx"] for t in self.trades)
-        decay = math.log(2) / half_life_candles
-
-        def _weight(t: dict) -> float:
-            return math.exp(-decay * (max_index - t["entry_idx"]))
+        weights = self._recency_weights(self.trades, half_life_days)
 
         stats: dict[str, dict] = defaultdict(
             lambda: {"raw_wins": 0, "raw_n": 0,
                      "weighted_wins": 0.0, "weighted_n": 0.0}
         )
-        for t in self.trades:
+        for t, w in zip(self.trades, weights):
             regime, tf = t.get("regime", ""), t.get("tf", "")
             is_win = int(t["win"])
-            w = _weight(t)
             for f in t["factors"]:
                 keys = [f]
                 if regime:
@@ -125,6 +145,11 @@ class BacktestResult:
                 eff_n * weighted_rate + prior_strength * prior
             ) / (eff_n + prior_strength)
             wilson_lower, wilson_upper = _wilson_interval(raw_rate, raw_n, z)
+            if min_wilson_lower > 0.0 and wilson_lower < min_wilson_lower:
+                # The edge is not confidently above the floor out-of-sample —
+                # drop the factor so the live engine falls back to its prior
+                # instead of trusting an unvalidated (likely in-sample) rate.
+                continue
             calib[k] = {
                 "rate": round(shrunk_rate, 6),
                 "raw": round(raw_rate, 6),
@@ -142,8 +167,7 @@ class BacktestResult:
         loss_weight_sum = 0.0
         weighted_win_r = 0.0
         weighted_loss_r = 0.0
-        for t in self.trades:
-            w = _weight(t)
+        for t, w in zip(self.trades, weights):
             total_weight += w
             weighted_win_sum += w * int(t["win"])
             r = t["r"]
@@ -190,8 +214,9 @@ class BacktestResult:
         return pd.DataFrame(rows).fillna(0.0)
 
     def write_calibration(self, path: str, min_samples: int = 25,
-                          half_life_candles: int = 252) -> dict:
-        calib = self.calibration_dict(min_samples, half_life_candles)
+                          half_life_days: float = 45.0,
+                          min_wilson_lower: float = 0.0) -> dict:
+        calib = self.calibration_dict(min_samples, half_life_days, min_wilson_lower)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(calib, f, indent=2)
         return calib
