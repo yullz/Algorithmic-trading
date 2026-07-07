@@ -51,7 +51,11 @@
   - **P3-risk-2** (`27bf59b`): live Bybit circuit-breaker state now **persisted + UTC-rolled**
     (`reports/live_state.json`) like the paper executor — the daily-loss anchor re-anchors at the day
     boundary and the losing-streak survives restarts (was in-memory + anchored once).
-  - **Remaining Phase 3:** ccxt.pro **WebSocket streaming feed** (live candles, freshness guard,
+  - **P3-risk-3** (`ae65860`): `portfolio_allows` now caps **total open risk-in-R** across the book
+    (`max_portfolio_risk_pct`, default 6%) — bounds worst-case loss if correlated positions all stop
+    together, which the margin/count caps missed.
+  - **Remaining Phase 3:** tiered maintenance-margin (per-symbol, needs live ccxt tiers) + funding in EV +
+    correlation-vs-open-book (needs return series threaded); ccxt.pro **WebSocket streaming feed** (live candles, freshness guard,
     closed-candle signals); tiered maintenance-margin (flat 0.5% underestimates alt liquidation); funding
     in EV; correlation / BTC-beta / gross-notional caps enforced against the OPEN book; server hardening
     (async locks, WAL SQLite off-loop, bounded socket queues, persistent trade linkage, structured
