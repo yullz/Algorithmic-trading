@@ -487,7 +487,7 @@ def _write_robustness(trades: list[dict], cfg: AppConfig, n_trials: int,
     from algotrader.backtest.account import simulate_account
     from algotrader.backtest.robustness import (
         block_bootstrap_expectancy_ci, deflated_sharpe_ratio,
-        probability_backtest_overfitting)
+        parameter_stability, probability_backtest_overfitting)
     r_series = [t["r"] for t in trades]
     report = {
         "n_trades": len(trades),
@@ -495,6 +495,7 @@ def _write_robustness(trades: list[dict], cfg: AppConfig, n_trials: int,
         "deflated_sharpe": deflated_sharpe_ratio(r_series, n_trials),
         "bootstrap_expectancy": block_bootstrap_expectancy_ci(r_series),
         "account": simulate_account(trades, cfg.risk),
+        "param_stability": parameter_stability(trades),
     }
     mat = _kind_period_matrix(trades)
     if mat is not None:

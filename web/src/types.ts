@@ -206,6 +206,18 @@ export interface RobustnessReport {
     equity_curve?: number[];
   };
   pbo?: { pbo: number | null; n_configs: number; n_splits: number };
+  param_stability?: {
+    present: boolean;
+    n_periods?: number;
+    overall_positive_frac?: number | null;
+    params?: Record<string, {
+      thresholds: number[];
+      matrix: (number | null)[][];
+      counts: number[][];
+      n_cells: number;
+      positive_frac: number | null;
+    }>;
+  };
 }
 
 export interface Derivatives {

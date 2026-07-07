@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type CSSProperties, Fragment, useEffect, useState } from 'react';
 import { get } from './api';
 import { fmtPct } from './format';
 import { Chip, Dot, Empty, Section, Sparkline, Stat } from './ui';
@@ -166,6 +166,24 @@ export default function AnalyticsView() {
         </div>
       )}
 
+      {rob?.param_stability?.present && rob.param_stability.params && (
+        <Section title="Parameter stability — does the edge hinge on one knob?">
+          <div className="space-y-5 p-4">
+            <div className="grid gap-5 lg:grid-cols-2">
+              {Object.entries(rob.param_stability.params).map(([name, p]) => (
+                <ParamHeatmap key={name} name={name} data={p} />
+              ))}
+            </div>
+            <p className="text-2xs leading-relaxed text-neutral-500">
+              Each row tightens a gate; each column is a later time period; green = positive mean R,
+              red = negative, faded = too few trades. A real edge stays green across rows AND columns —
+              {' '}{fmtPct(rob.param_stability.overall_positive_frac ?? 0, 0)} of cells are positive here.
+              A fragile one only works at one lucky setting.
+            </p>
+          </div>
+        </Section>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Section title="Calibration reliability (predicted vs realized)">
           {!rel?.present || !rel.buckets?.length ? (
@@ -266,6 +284,47 @@ function fmtMetric(k: string, v: number | undefined): string {
   if (k === 'win_rate') return fmtPct(v, 0);
   if (k === 'trades') return String(v);
   return v.toFixed(2);
+}
+
+function ParamHeatmap({ name, data }: {
+  name: string;
+  data: { thresholds: number[]; matrix: (number | null)[][]; counts: number[][] };
+}) {
+  const finite = data.matrix.flat().filter((v): v is number => v != null);
+  const cap = Math.max(0.1, ...finite.map(Math.abs));
+  const nP = data.matrix[0]?.length ?? 0;
+  const style = (v: number | null): CSSProperties => {
+    if (v == null) return { background: 'var(--surface-2)', opacity: 0.35 };
+    const mag = Math.min(Math.abs(v) / cap, 1);
+    const rgb = v >= 0 ? '16,185,129' : '239,68,68';   // success / danger
+    return { background: `rgba(${rgb},${(0.18 + 0.72 * mag).toFixed(2)})` };
+  };
+  return (
+    <div>
+      <div className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-neutral-500">
+        {name.replace(/_/g, ' ')} gate
+      </div>
+      <div className="overflow-x-auto">
+        <div className="inline-grid gap-0.5"
+          style={{ gridTemplateColumns: `auto repeat(${nP}, minmax(1.25rem, 1fr))` }}>
+          {data.matrix.map((row, ti) => (
+            <Fragment key={ti}>
+              <div className="num self-center pr-2 text-right text-2xs text-neutral-500">
+                ≥{data.thresholds[ti]}
+              </div>
+              {row.map((v, pi) => (
+                <div key={pi} className="h-6 rounded-sm" style={style(v)}
+                  title={v == null
+                    ? `period ${pi + 1}: too few trades (n=${data.counts[ti]?.[pi] ?? 0})`
+                    : `≥${data.thresholds[ti]} · period ${pi + 1}: ${v.toFixed(2)}R (n=${data.counts[ti]?.[pi] ?? 0})`} />
+              ))}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+      <div className="mt-1 text-2xs text-neutral-500">earliest → latest period</div>
+    </div>
+  );
 }
 
 function ReliabilityPlot({ buckets }:

@@ -6,9 +6,23 @@ import numpy as np
 from algotrader.backtest.robustness import (
     block_bootstrap_expectancy_ci,
     deflated_sharpe_ratio,
+    parameter_stability,
     probability_backtest_overfitting,
     sharpe_ratio,
 )
+
+
+def _mk_trades(n, conf_fn, r_fn):
+    import pandas as pd
+    base = pd.Timestamp("2024-01-01", tz="UTC")
+    out = []
+    for i in range(n):
+        out.append({
+            "entry_time": (base + pd.Timedelta(hours=i)).isoformat(),
+            "confidence": conf_fn(i), "n_families": 2 + (i % 4),
+            "r": r_fn(i),
+        })
+    return out
 
 
 def test_sharpe_ratio_basic():
@@ -65,3 +79,32 @@ def test_block_bootstrap_ci_brackets_mean():
     out = block_bootstrap_expectancy_ci(r, block=10, n_boot=500)
     assert out["lo"] < out["mean"] < out["hi"]
     assert out["positive_frac"] > 0.9                  # confidently positive
+
+
+def test_parameter_stability_shape_and_positive_edge():
+    # High confidence -> consistently positive R across all periods.
+    rng = np.random.default_rng(5)
+    trades = _mk_trades(400,
+                        conf_fn=lambda i: 0.5 + 0.4 * rng.random(),
+                        r_fn=lambda i: 1.0)  # every trade wins -> all cells > 0
+    out = parameter_stability(trades, n_periods=8)
+    assert out["present"] is True
+    conf = out["params"]["confidence"]
+    assert len(conf["thresholds"]) == 5
+    assert len(conf["matrix"]) == 5           # one row per threshold
+    assert conf["positive_frac"] == 1.0       # a real edge is knob-robust
+    assert out["overall_positive_frac"] == 1.0
+
+
+def test_parameter_stability_flags_a_fragile_edge():
+    # A losing strategy -> negative cells -> low positive fraction.
+    trades = _mk_trades(300, conf_fn=lambda i: 0.7, r_fn=lambda i: -1.0)
+    out = parameter_stability(trades, n_periods=6)
+    assert out["overall_positive_frac"] == 0.0
+
+
+def test_parameter_stability_empty_and_missing_params():
+    assert parameter_stability([])["present"] is False
+    # trades without confidence/n_families keys -> no params, present False.
+    bare = [{"entry_time": "2024-01-01", "r": 1.0} for _ in range(20)]
+    assert parameter_stability(bare)["present"] is False

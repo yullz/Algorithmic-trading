@@ -166,3 +166,78 @@ def block_bootstrap_expectancy_ci(returns, block: int = 10, n_boot: int = 1000,
     lo, hi = np.quantile(means, [alpha / 2, 1 - alpha / 2])
     return {"mean": round(float(r.mean()), 4), "lo": round(float(lo), 4),
             "hi": round(float(hi), 4), "n": T, "positive_frac": round(float((means > 0).mean()), 4)}
+
+
+_DEFAULT_PARAM_GRID = {
+    "confidence": [0.55, 0.60, 0.65, 0.70, 0.75],
+    "n_families": [2, 3, 4, 5],
+}
+
+
+def parameter_stability(trades, params: dict | None = None, n_periods: int = 8,
+                        min_cell: int = 5) -> dict:
+    """Parameter-stability heatmap: how the realized edge holds as each tunable
+    gate is tightened, across time periods.
+
+    A robust edge stays positive across a RANGE of a gate's values and across
+    periods — it should not hinge on one lucky knob setting. For a pure
+    post-filter gate on a recorded feature (confidence, n_families), keeping only
+    trades with feature >= threshold IS the honest counterfactual: those trades
+    and their realized R already happened, so no re-simulation is needed.
+
+    Returns per-param {thresholds, matrix (mean-R per threshold x period, null
+    where a cell has < min_cell trades), counts, positive_frac} plus an overall
+    positive-cell fraction — a single "is the edge knob-robust" number.
+    """
+    if not trades:
+        return {"present": False}
+    specs = params if params is not None else _DEFAULT_PARAM_GRID
+    order = sorted(range(len(trades)),
+                   key=lambda i: str(trades[i].get("entry_time", "")))
+    chunks = [c for c in np.array_split(order, max(1, n_periods)) if len(c)]
+    if not chunks:
+        return {"present": False}
+
+    out_params: dict = {}
+    all_finite: list[float] = []
+    for pname, thresholds in specs.items():
+        if not any(pname in t for t in trades):
+            continue
+        matrix, counts = [], []
+        for thr in thresholds:
+            row, crow = [], []
+            for chunk in chunks:
+                rs = [trades[i]["r"] for i in chunk
+                      if _as_float(trades[i].get(pname)) >= thr]
+                if len(rs) >= min_cell:
+                    row.append(round(float(np.mean(rs)), 4))
+                else:
+                    row.append(None)
+                crow.append(len(rs))
+            matrix.append(row)
+            counts.append(crow)
+        finite = [v for r in matrix for v in r if v is not None]
+        all_finite.extend(finite)
+        out_params[pname] = {
+            "thresholds": list(thresholds),
+            "matrix": matrix,
+            "counts": counts,
+            "n_cells": len(finite),
+            "positive_frac": round(sum(v > 0 for v in finite) / len(finite), 4)
+            if finite else None,
+        }
+
+    return {
+        "present": bool(out_params),
+        "n_periods": len(chunks),
+        "params": out_params,
+        "overall_positive_frac": round(sum(v > 0 for v in all_finite) / len(all_finite), 4)
+        if all_finite else None,
+    }
+
+
+def _as_float(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return float("-inf")
