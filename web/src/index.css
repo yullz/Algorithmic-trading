@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light palette */
+    --surface: #f8fafc;
+    --surface-1: #ffffff;
+    --surface-2: #f1f5f9;
+    --surface-3: #e2e8f0;
+    --line: rgba(51, 65, 85, 0.14);
+    --line-strong: rgba(51, 65, 85, 0.24);
+
+    --primary: #0891b2;
+    --primary-dim: rgba(8, 145, 178, 0.12);
+    --secondary: #6366f1;
+    --secondary-dim: rgba(99, 102, 241, 0.12);
+    --success: #059669;
+    --success-dim: rgba(5, 150, 105, 0.12);
+    --danger: #e11d48;
+    --danger-dim: rgba(225, 29, 72, 0.12);
+    --warning: #d97706;
+    --warning-dim: rgba(217, 119, 6, 0.12);
+
+    color-scheme: light;
+  }
+
+  .dark {
+    /* Dark trading palette */
+    --surface: #020617;
+    --surface-1: #0f172a;
+    --surface-2: #1e293b;
+    --surface-3: #334155;
+    --line: rgba(148, 163, 184, 0.12);
+    --line-strong: rgba(148, 163, 184, 0.22);
+
+    --primary: #22d3ee;
+    --primary-dim: rgba(34, 211, 238, 0.12);
+    --secondary: #818cf8;
+    --secondary-dim: rgba(129, 140, 248, 0.12);
+    --success: #10b981;
+    --success-dim: rgba(16, 185, 129, 0.12);
+    --danger: #f43f5e;
+    --danger-dim: rgba(244, 63, 94, 0.12);
+    --warning: #f59e0b;
+    --warning-dim: rgba(245, 158, 11, 0.12);
+
+    color-scheme: dark;
+  }
+
+  html {
+    @apply bg-surface text-slate-600 antialiased;
+  }
+
+  html.dark {
+    @apply bg-slate-950 text-slate-300;
+  }
+
+  body {
+    @apply font-sans text-sm;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.18);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  html.dark ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.18);
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-surface-1 shadow-sm;
+  }
+
+  .dark .card {
+    @apply border-white/10 bg-slate-900/80 shadow-panel backdrop-blur;
+  }
+
+  .card-glass {
+    @apply rounded-xl border border-white/10 bg-slate-900/80 shadow-panel backdrop-blur;
+  }
+
+  .num {
+    @apply font-mono tabular-nums;
+  }
+
+  .th {
+    @apply px-3 py-2 text-left text-2xs font-semibold uppercase tracking-wider text-slate-500;
+  }
+
+  .td {
+    @apply px-3 py-2 border-t border-line;
+  }
+
+  .btn-tab {
+    @apply flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-surface-2 hover:text-slate-700;
+  }
+
+  .dark .btn-tab {
+    @apply text-slate-400 hover:bg-slate-800 hover:text-slate-100;
+  }
+
+  .btn-tab-active {
+    @apply bg-surface-2 text-slate-800;
+  }
+
+  .dark .btn-tab-active {
+    @apply bg-slate-800 text-slate-100;
+  }
+
+  .btn-icon {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-surface-2 hover:text-slate-700;
+  }
+
+  .dark .btn-icon {
+    @apply text-slate-400 hover:bg-slate-800 hover:text-slate-100;
+  }
+
+  .table-responsive {
+    @apply w-full overflow-x-auto;
+  }
+
+  .chip-dot {
+    @apply h-2 w-2 rounded-full;
+  }
+
+  .progress-track {
+    @apply h-1 w-full overflow-hidden rounded-full bg-surface-2;
+  }
+
+  .dark .progress-track {
+    @apply bg-slate-800;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-500;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

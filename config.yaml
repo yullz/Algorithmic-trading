@@ -1,0 +1,94 @@
+# ---------------------------------------------------------------------------
+# AlgoTrader configuration. Everything here is safe defaults for PAPER trading.
+# ---------------------------------------------------------------------------
+
+exchange:
+  id: bybit                # ccxt id; USDT-margined perpetual futures
+  market_type: swap        # perpetual futures
+  # Rate limiting is enabled in code (ccxt enableRateLimit=True).
+  # Fallbacks if bybit is unreachable: binanceusdm, okx (set via EXCHANGE env).
+
+universe:
+  # "top_volume": scan the top `size` USDT-perps by 24h quote volume
+  # (stablecoin/fiat pairs excluded, refreshed hourly).
+  # "static": scan only the symbols listed below.
+  mode: top_volume
+  size: 150
+  symbols:                 # used when mode: static (and always scanned first)
+    - BTC/USDT:USDT
+    - ETH/USDT:USDT
+    - SOL/USDT:USDT
+  timeframes:
+    - 15m
+    - 1h
+    - 4h
+  # Higher timeframe used only for trend context / confluence.
+  context_timeframe: 4h
+  lookback_candles: 500
+
+risk:
+  account_equity: 1000.0
+  risk_per_trade_pct: 0.01      # risk 1% of equity to stop
+  max_leverage: 5.0
+  default_leverage: 3.0
+  maker_fee: 0.0002
+  taker_fee: 0.0005
+  slippage_pct: 0.0005
+  maintenance_margin_rate: 0.005
+  max_margin_alloc_pct: 0.20
+  min_reward_risk: 1.0      # expected win must be >= expected loss (realistic, not ladder best-case)
+  atr_stop_mult: 1.5
+  max_stop_atr_mult: 3.0    # stop distance hard cap (ATR multiples)
+  tp_r_multiples: [1.0, 2.0, 3.0]
+  tp_allocations: [0.4, 0.35, 0.25]
+  # ---- portfolio-level constraints ----
+  max_concurrent_positions: 6
+  max_total_margin_pct: 0.60
+  correlation_cap: 0.8          # >this 30d return correlation = same bet
+  # ---- circuit breakers ----
+  max_daily_loss_pct: 0.03      # halt new entries after a -3% day
+  max_consecutive_losses: 5
+  # ---- adaptive sizing ----
+  adaptive_sizing_mode: none              # none | volatility_target | kelly
+  volatility_target_atr_percentile: 50    # median ATR used as neutral anchor
+  kelly_fraction: 0.25                    # quarter-Kelly cap
+  # ---- time stop ----
+  max_trade_duration_candles: 0           # 0 = disabled
+  # ---- regime-dependent sizing ----
+  volatile_regime_size_factor: 0.7
+
+signals:
+  # Minimum overall confidence (0..1) to emit a trade plan.
+  min_confidence: 0.60
+  # Minimum number of agreeing evidence factors (raw pieces).
+  min_confluence: 3
+  # Minimum number of INDEPENDENT evidence families that must agree.
+  min_families: 3
+  # Hard-reject trades against the higher-timeframe trend (soft vote if false).
+  htf_veto: false
+  # Reject setup kinds that historically fail in the current regime.
+  regime_gating: true
+  # Signals expire after this many candles of the entry timeframe.
+  validity_candles: 3
+
+scanner:
+  interval_sec: 300         # background scan cadence (seconds)
+  concurrency: 8            # parallel OHLCV fetches (rate-limit friendly)
+  cache_dir: data_cache     # incremental parquet candle cache
+  enrich_top: 25            # only the top-ranked candidates get funding/OI calls
+  top_n: 15                 # max published picks per scan (best trades only)
+
+ml:
+  enabled: true
+  model_path: models/meta_model.pkl
+  # Below this many backtest trades the meta-model stays out of the blend.
+  min_training_trades: 300
+
+execution:
+  mode: paper               # paper | live  (live ALSO requires ALLOW_LIVE_TRADING=true in .env)
+  testnet: true             # live orders go to Bybit testnet...
+  allow_mainnet: false      # ...unless testnet=false AND allow_mainnet=true
+
+calibration:
+  # Written by backtest.py. Maps setup name (optionally "|regime|tf") -> win rate.
+  file: calibration.json

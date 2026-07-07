@@ -1,0 +1,23 @@
+# Core
+ccxt>=4.2.0            # unified exchange API (data + optional execution)
+pandas>=2.0.0
+numpy>=1.24.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+rich>=13.0.0           # pretty CLI tables/output
+aiohttp>=3.9.0         # ccxt.async_support transport
+pyarrow>=15.0.0        # parquet candle cache + ML dataset
+scipy>=1.11.0          # pattern fitting helpers
+scikit-learn>=1.4.0    # ML meta-model (HistGradientBoosting)
+pytest>=8.0.0          # test suite
+pytest-cov>=5.0.0      # coverage gate (CI)
+httpx>=0.27.0         # FastAPI TestClient transport (starlette.testclient dependency)
+fastapi>=0.110.0       # dashboard API
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+
+# Optional (indicators fall back to pure-pandas if absent)
+# pandas-ta>=0.3.14b   # extra indicators; not required
+
+# Optional secure key storage
+cryptography>=41.0.0

@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+logs/
+calibration.json
+*.log
+.DS_Store
+data_cache/
+models/
+reports/
+web/node_modules/
+web/dist/
