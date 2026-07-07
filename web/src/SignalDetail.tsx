@@ -4,8 +4,8 @@ import {
 } from 'lightweight-charts';
 import { get } from './api';
 import { fmtMoney, fmtPct, fmtPrice, fmtR } from './format';
-import { Chip, ConfBar, Dot, RegimeChip, SideTag } from './ui';
-import type { CandlesResponse, Plan } from './types';
+import { ConfBar, Dot, RegimeChip, SideTag } from './ui';
+import type { CandlesResponse, Derivatives, Plan } from './types';
 
 const BLOCK_TITLES = ['Thesis', 'Why it may work', 'Why it may lose', 'Caveats'];
 
@@ -27,14 +27,22 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
   const chartRef = useRef<IChartApi | null>(null);
   const [data, setData] = useState<CandlesResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [activeTf, setActiveTf] = useState(tf);
+  useEffect(() => setActiveTf(tf), [symbol, tf]);  // reset when a new signal opens
+  const [deriv, setDeriv] = useState<Derivatives | null>(null);
+  useEffect(() => {
+    setDeriv(null);
+    get<Derivatives>(`/api/derivatives?symbol=${encodeURIComponent(symbol)}`)
+      .then(setDeriv).catch(() => {});
+  }, [symbol]);
 
   useEffect(() => {
     setData(null);
     setErr(null);
-    get<CandlesResponse>(`/api/candles?symbol=${encodeURIComponent(symbol)}&tf=${tf}&limit=300`)
+    get<CandlesResponse>(`/api/candles?symbol=${encodeURIComponent(symbol)}&tf=${activeTf}&limit=300`)
       .then(setData)
       .catch(e => setErr(String(e)));
-  }, [symbol, tf]);
+  }, [symbol, activeTf]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -180,7 +188,16 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{symbol.split('/')[0]}</h2>
             {quote && <span className="text-sm text-slate-500">/{quote}</span>}
           </div>
-          <Chip>{tf}</Chip>
+          <div className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5 dark:bg-slate-800">
+            {['15m', '1h', '4h', '1d'].map(t => (
+              <button key={t} onClick={() => setActiveTf(t)}
+                className={`rounded-md px-2 py-0.5 text-2xs font-medium transition-colors ${
+                  activeTf === t ? 'bg-primary/20 text-primary'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}>
+                {t}
+              </button>
+            ))}
+          </div>
           {plan && <SideTag side={plan.side} />}
           {plan && <RegimeChip regime={plan.regime} />}
           {plan && <ConfBar value={plan.confidence} />}
@@ -263,6 +280,41 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
               <div className="card p-4 text-2xs text-slate-500">
                 No active signal for this symbol — chart only. S/R levels are drawn
                 from touch-counted pivots.
+              </div>
+            )}
+
+            {deriv?.present && (deriv.funding_rate != null || deriv.oi_change_pct != null) && (
+              <div className="card p-4">
+                <div className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Derivatives</div>
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  {deriv.funding_rate != null && (
+                    <>
+                      <span className="text-2xs uppercase tracking-wide text-slate-500">funding · 8h</span>
+                      <span className={`num text-right ${deriv.funding_rate >= 0 ? 'text-danger' : 'text-success'}`}>
+                        {(deriv.funding_rate * 100).toFixed(4)}%
+                      </span>
+                      <span className="text-2xs uppercase tracking-wide text-slate-500">annualized</span>
+                      <span className="num text-right text-slate-500">
+                        {(deriv.funding_rate * 3 * 365 * 100).toFixed(0)}%
+                      </span>
+                    </>
+                  )}
+                  {deriv.oi_change_pct != null && (
+                    <>
+                      <span className="text-2xs uppercase tracking-wide text-slate-500">OI · 12h</span>
+                      <span className={`num text-right ${deriv.oi_change_pct >= 0 ? 'text-success' : 'text-danger'}`}>
+                        {deriv.oi_change_pct >= 0 ? '+' : ''}{deriv.oi_change_pct}%
+                      </span>
+                    </>
+                  )}
+                </div>
+                {deriv.funding_rate != null && (
+                  <p className="mt-2 text-2xs leading-relaxed text-slate-500">
+                    {deriv.funding_rate >= 0
+                      ? 'Longs pay shorts — crowded longs (contrarian bearish if extreme).'
+                      : 'Shorts pay longs — crowded shorts (squeeze fuel if extreme).'}
+                  </p>
+                )}
               </div>
             )}
           </aside>

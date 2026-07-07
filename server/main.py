@@ -726,6 +726,37 @@ async def api_candles(symbol: str, tf: str = "1h", limit: int = 300):
             "sr_levels": levels, "overlays": overlays, "patterns": patterns}
 
 
+@app.get("/api/derivatives")
+async def api_derivatives(symbol: str):
+    """Current funding rate + open-interest trend for the detail view —
+    the crowd-positioning read that OHLCV can't show."""
+    if scanner is None or not hasattr(scanner, "feed"):
+        return {"present": False}
+    ex = getattr(scanner.feed, "exchange", None)
+    if ex is None:
+        return {"present": False}
+    out = {"present": True, "symbol": symbol, "funding_rate": None,
+           "oi": None, "oi_change_pct": None}
+    try:
+        fr = await ex.fetch_funding_rate(symbol)
+        rate = fr.get("fundingRate") if isinstance(fr, dict) else None
+        if rate is None and isinstance(fr, dict):
+            rate = (fr.get("info") or {}).get("fundingRate")
+        out["funding_rate"] = float(rate) if rate is not None else None
+    except Exception as e:
+        log.debug("funding fetch failed for %s: %s", symbol, e)
+    try:
+        from algotrader.data.derivatives import _extract_oi_values
+        hist = await ex.fetch_open_interest_history(symbol, timeframe="1h", limit=14)
+        vals = _extract_oi_values(hist)
+        if len(vals) >= 3 and vals[0] > 0:
+            out["oi"] = round(float(vals[-1]), 2)
+            out["oi_change_pct"] = round((vals[-1] - vals[0]) / vals[0] * 100, 2)
+    except Exception as e:
+        log.debug("OI fetch failed for %s: %s", symbol, e)
+    return out
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()

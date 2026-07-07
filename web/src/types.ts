@@ -186,6 +186,14 @@ export interface ReliabilityReport {
   n?: number;
 }
 
+export interface Derivatives {
+  present: boolean;
+  symbol?: string;
+  funding_rate?: number | null;
+  oi?: number | null;
+  oi_change_pct?: number | null;
+}
+
 export interface Candle {
   time: number;
   open: number;
