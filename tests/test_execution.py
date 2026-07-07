@@ -161,3 +161,34 @@ def test_bybit_tracked_state_cleared_on_close(monkeypatch):
     exe._tracked["BTC/USDT:USDT"] = {"entry_id": "order1"}
     exe.close_position("BTC/USDT:USDT", 100.0, "test")
     assert "BTC/USDT:USDT" not in exe._tracked
+
+
+def test_bybit_breaker_state_persists_across_restart(monkeypatch, tmp_path):
+    """The losing-streak breaker must survive a process restart — otherwise it
+    resets to zero exactly when a bad run should be halting new entries."""
+    fake_ccxt, _ex = _fake_bybit()
+    monkeypatch.setitem(sys.modules, "ccxt", fake_ccxt)
+    root = str(tmp_path)
+
+    exe = BybitExecutor(RiskConfig(), "key", "secret", testnet=True, root=root)
+    exe.record_trade_result(win=False)
+    exe.record_trade_result(win=False)
+    assert exe.consecutive_losses == 2
+
+    exe2 = BybitExecutor(RiskConfig(), "key", "secret", testnet=True, root=root)
+    assert exe2.consecutive_losses == 2  # restored from disk
+
+
+def test_bybit_day_anchor_rolls_at_utc_boundary(monkeypatch, tmp_path):
+    """The daily-loss anchor must re-anchor at the UTC day boundary, not stay
+    pinned to a stale previous-day (or first-ever) reference."""
+    fake_ccxt, _ex = _fake_bybit()
+    monkeypatch.setitem(sys.modules, "ccxt", fake_ccxt)
+    exe = BybitExecutor(RiskConfig(), "key", "secret", testnet=True, root=str(tmp_path))
+
+    exe.day_anchor = {"date": "2000-01-01", "equity": 5000.0}  # stale
+    exe._roll_day_anchor(1000.0)
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert exe.day_anchor["date"] == today
+    assert exe.day_anchor["equity"] == 1000.0  # re-anchored to CURRENT equity

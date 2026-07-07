@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ..models import RiskConfig, Side, TradePlan
+from ..reporting import read_json, write_json
 from ..risk.manager import RiskManager
 from ..utils.logging import audit, get_logger, utcnow_iso
 from .base import (CircuitBreakers, Executor, PositionState, portfolio_allows,
@@ -45,9 +46,14 @@ class BybitExecutor(Executor):
         self.cfg = cfg
         self.testnet = testnet
         self.breakers = CircuitBreakers(cfg, root)
+        self.state_path = os.path.join(root, "reports", "live_state.json")
         self.consecutive_losses = 0
-        self._day_equity: Optional[float] = None
+        # Daily-loss breaker anchor: persisted and rolled at the UTC day boundary
+        # (mirrors the paper executor) so it survives restarts and behaves as a
+        # true INTRADAY guard instead of anchoring once to first-ever equity.
+        self.day_anchor = {"date": "", "equity": cfg.account_equity}
         self._tracked: dict[str, dict] = {}   # symbol -> partial-TP fill state
+        self._load_state()
         self.ex = ccxt.bybit({
             "apiKey": api_key, "secret": api_secret,
             "enableRateLimit": True,
@@ -58,6 +64,36 @@ class BybitExecutor(Executor):
         self.ex.load_markets()
         log.warning("LIVE executor initialized on %s",
                     "TESTNET" if testnet else "*** MAINNET ***")
+
+    # ------------------------------------------------------------------ #
+    # persisted breaker state — the guard that matters most is only useful if a
+    # process bounce cannot wipe it
+    # ------------------------------------------------------------------ #
+    def _load_state(self) -> None:
+        s = read_json(self.state_path)
+        if not s:
+            return
+        try:
+            self.consecutive_losses = int(s.get("consecutive_losses", 0))
+            self.day_anchor = dict(s.get("day_anchor", self.day_anchor))
+            log.info("restored live breaker state: streak=%d, day_anchor=%s",
+                     self.consecutive_losses, self.day_anchor)
+        except (TypeError, ValueError) as e:
+            log.warning("live breaker state unreadable (%s) — starting fresh", e)
+
+    def _save_state(self) -> None:
+        write_json(self.state_path, {
+            "consecutive_losses": self.consecutive_losses,
+            "day_anchor": self.day_anchor,
+            "updated_at": utcnow_iso(),
+        })
+
+    def _roll_day_anchor(self, equity: float) -> None:
+        """Reset the daily-loss reference at the UTC day boundary."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        if self.day_anchor.get("date") != today:
+            self.day_anchor = {"date": today, "equity": equity}
+            self._save_state()
 
     # ------------------------------------------------------------------ #
     @classmethod
@@ -164,9 +200,8 @@ class BybitExecutor(Executor):
     # ------------------------------------------------------------------ #
     def open_position(self, plan: TradePlan) -> Optional[str]:
         equity = self.equity()
-        if self._day_equity is None:
-            self._day_equity = equity
-        ok, why = self.breakers.allow_entry(equity, self._day_equity,
+        self._roll_day_anchor(equity)
+        ok, why = self.breakers.allow_entry(equity, self.day_anchor["equity"],
                                             self.consecutive_losses)
         if not ok:
             log.warning("LIVE entry blocked: %s", why)
@@ -344,3 +379,4 @@ class BybitExecutor(Executor):
     def record_trade_result(self, win: bool) -> None:
         """Feed the losing-streak breaker (called by the runner on fills)."""
         self.consecutive_losses = 0 if win else self.consecutive_losses + 1
+        self._save_state()
