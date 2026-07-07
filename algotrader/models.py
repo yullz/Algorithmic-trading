@@ -185,6 +185,7 @@ class TradePlan:
     ml_prob: Optional[float] = None
     ml_weight: float = 0.0
     ml_contribs: list[str] = field(default_factory=list)
+    ml_ev_r: Optional[float] = None   # reward-head predicted per-trade E[R]
     # time-stop bookkeeping
     time_stop_candles: int = 0
     opened_at_candle: int = -1

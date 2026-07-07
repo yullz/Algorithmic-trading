@@ -498,17 +498,46 @@ def api_mlmodel():
         with open(path, "rb") as f:
             blob = pickle.load(f)
         meta = blob["meta"]
-        # Strip large arrays from the API response; top_features is available
-        # programmatically via MetaModel.
-        meta.pop("feature_columns", None)
-        meta.pop("feature_names", None)
-        meta.pop("feature_importances_", None)
-        # Drift score requires recent predictions/outcomes; without them it is
-        # exposed as a None-valued field so consumers know the shape.
         from algotrader.ml.predict import MetaModel
         mm = MetaModel(blob["model"], meta)
+        # Feature importance for the dashboard (before stripping the raw arrays).
+        top_features = [{"name": n, "importance": round(float(v), 5)}
+                        for n, v in mm.top_features(12)]
         meta["drift_score"] = mm.drift_score([], [])
-        return {"present": True, **meta}
+        # Strip large arrays from the API response.
+        for k in ("feature_columns", "feature_names", "feature_importances_"):
+            meta.pop(k, None)
+        return {"present": True, "top_features": top_features, **meta}
+    except Exception as e:
+        return {"present": False, "error": str(e)}
+
+
+@app.get("/api/analytics/reliability")
+def api_reliability():
+    """Calibration reliability: bucket the rule win-rate prediction and compare
+    it to the REALIZED win rate, from the exported ML dataset. Points on the
+    diagonal mean the predicted probability matches reality."""
+    ds_path = "reports/dataset.parquet"
+    if not os.path.exists(ds_path):
+        return {"present": False}
+    try:
+        df = pd.read_parquet(ds_path, columns=["rule_win_rate", "win"]).dropna()
+        if len(df) < 20:
+            return {"present": False}
+        edges = [i / 10 for i in range(11)]
+        df = df.assign(bucket=pd.cut(df["rule_win_rate"], bins=edges,
+                                     include_lowest=True))
+        buckets = []
+        for _b, g in df.groupby("bucket", observed=True):
+            if len(g) == 0:
+                continue
+            buckets.append({
+                "predicted": round(float(g["rule_win_rate"].mean()), 4),
+                "realized": round(float(g["win"].mean()), 4),
+                "n": int(len(g)),
+            })
+        buckets.sort(key=lambda x: x["predicted"])
+        return {"present": True, "buckets": buckets, "n": int(len(df))}
     except Exception as e:
         return {"present": False, "error": str(e)}
 
@@ -676,8 +705,25 @@ async def api_candles(symbol: str, tf: str = "1h", limit: int = 300):
                      "rsi", "macd_hist")}
     except Exception as e:
         log.debug("candle overlays failed for %s: %s", symbol, e)
+
+    # Detected chart patterns -> labeled markers at their location, so "recognizes
+    # patterns" is visible on the chart, not just narrated.
+    patterns: list = []
+    try:
+        from algotrader.patterns import chart_patterns as cp
+        for pm in cp.detect(df):
+            if 0 <= pm.end_idx < len(df):
+                patterns.append({
+                    "name": pm.name, "bias": pm.bias.value,
+                    "time": int(df.index[pm.end_idx].timestamp()),
+                    "breakout_level": pm.breakout_level,
+                    "target_level": pm.target_level,
+                })
+    except Exception as e:
+        log.debug("candle patterns failed for %s: %s", symbol, e)
+
     return {"symbol": symbol, "tf": tf, "candles": candles,
-            "sr_levels": levels, "overlays": overlays}
+            "sr_levels": levels, "overlays": overlays, "patterns": patterns}
 
 
 @app.websocket("/ws")

@@ -231,6 +231,7 @@ class RiskManager:
             ml_prob=getattr(sig, "ml_prob", None),
             ml_weight=getattr(sig, "ml_weight", 0.0),
             ml_contribs=list(getattr(sig, "ml_contribs", []) or []),
+            ml_ev_r=getattr(sig, "ml_ev_r", None),
             time_stop_candles=time_stop_candles,
             opened_at_candle=opened_at_candle,
         )

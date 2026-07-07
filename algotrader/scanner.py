@@ -125,8 +125,13 @@ class Scanner:
                 continue
             last = float(df["close"].iloc[-1])
             chg = last / float(df["close"].iloc[-(bars_24h + 1)]) - 1.0
+            # Real 24h close series (downsampled to <=24 points) so the tile
+            # sparkline shows actual price action, not a fabricated curve.
+            closes = df["close"].iloc[-(bars_24h + 1):].tolist()
+            step = max(1, len(closes) // 24)
+            spark = [round(float(c), 8) for c in closes[::step]][-24:]
             market.append({"symbol": s, "last": last,
-                           "chg24h_pct": round(chg * 100, 2),
+                           "chg24h_pct": round(chg * 100, 2), "spark": spark,
                            "candidate": s in cand_syms, "picked": s in pick_syms})
 
         out = {

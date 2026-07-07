@@ -36,6 +36,7 @@ def plan_to_dict(p: TradePlan) -> dict:
         "ml_prob": p.ml_prob,
         "ml_weight": p.ml_weight,
         "ml_contribs": p.ml_contribs,
+        "ml_ev_r": p.ml_ev_r,
         "time_stop_candles": p.time_stop_candles,
         "opened_at_candle": p.opened_at_candle,
     }

@@ -31,6 +31,7 @@ export interface Plan {
   ml_prob: number | null;
   ml_weight: number;
   ml_contribs: string[];
+  ml_ev_r?: number | null;
   rank?: number;
   suppressed_by?: string;
 }
@@ -39,6 +40,7 @@ export interface MarketTile {
   symbol: string;
   last: number;
   chg24h_pct: number;
+  spark?: number[];
   candidate: boolean;
   picked: boolean;
 }
@@ -169,9 +171,19 @@ export interface MLModelInfo {
   n_valid?: number;
   auc_valid?: number;
   brier_valid?: number;
+  brier_baseline?: number;
+  reward_spearman?: number;
+  reward_trusted?: boolean;
   base_rate?: number;
   trained_at?: string;
+  top_features?: { name: string; importance: number }[];
   error?: string;
+}
+
+export interface ReliabilityReport {
+  present: boolean;
+  buckets?: { predicted: number; realized: number; n: number }[];
+  n?: number;
 }
 
 export interface Candle {
@@ -185,12 +197,21 @@ export interface Candle {
 
 export type LinePoint = { time: number; value: number };
 
+export interface ChartPattern {
+  name: string;
+  bias: 'bullish' | 'bearish' | 'neutral';
+  time: number;
+  breakout_level: number | null;
+  target_level: number | null;
+}
+
 export interface CandlesResponse {
   symbol: string;
   tf: string;
   candles: Candle[];
   sr_levels: { price: number; touches: number }[];
   overlays?: Record<string, LinePoint[]>;
+  patterns?: ChartPattern[];
   error?: string;
 }
 

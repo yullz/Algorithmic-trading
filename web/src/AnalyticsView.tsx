@@ -2,19 +2,21 @@ import { useEffect, useState } from 'react';
 import { get } from './api';
 import { fmtPct } from './format';
 import { Chip, Dot, Empty, Section, Sparkline, Stat } from './ui';
-import type { BacktestReport, MLModelInfo, WalkforwardReport } from './types';
+import type { BacktestReport, MLModelInfo, ReliabilityReport, WalkforwardReport } from './types';
 
 export default function AnalyticsView() {
   const [bt, setBt] = useState<BacktestReport | null>(null);
   const [wf, setWf] = useState<WalkforwardReport | null>(null);
   const [cal, setCal] = useState<Record<string, number> | null>(null);
   const [ml, setMl] = useState<MLModelInfo | null>(null);
+  const [rel, setRel] = useState<ReliabilityReport | null>(null);
 
   useEffect(() => {
     get<BacktestReport>('/api/backtest').then(setBt).catch(() => {});
     get<WalkforwardReport>('/api/walkforward').then(setWf).catch(() => {});
     get<Record<string, number>>('/api/calibration').then(setCal).catch(() => {});
     get<MLModelInfo>('/api/mlmodel').then(setMl).catch(() => {});
+    get<ReliabilityReport>('/api/analytics/reliability').then(setRel).catch(() => {});
   }, []);
 
   const s = bt?.summary ?? {};
@@ -97,6 +99,44 @@ export default function AnalyticsView() {
       </Section>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        <Section title="Calibration reliability (predicted vs realized)">
+          {!rel?.present || !rel.buckets?.length ? (
+            <Empty title="No reliability data"
+              hint="Run backtest.py --export-dataset — this compares predicted win rate to realized outcomes." />
+          ) : (
+            <div className="p-4">
+              <div className="mx-auto max-w-sm"><ReliabilityPlot buckets={rel.buckets} /></div>
+              <p className="mt-2 text-center text-2xs text-slate-500">
+                {rel.n?.toLocaleString()} trades · points on the diagonal = well-calibrated
+              </p>
+            </div>
+          )}
+        </Section>
+
+        <Section title="ML feature importance">
+          {!ml?.top_features?.length ? (
+            <Empty title="No trained model"
+              hint="Train the meta-model to see which features drive its predictions." />
+          ) : (
+            <div className="space-y-1.5 p-4">
+              {ml.top_features.map(f => {
+                const max = ml.top_features![0].importance || 1;
+                return (
+                  <div key={f.name} className="flex items-center gap-2">
+                    <span className="num w-40 truncate text-2xs text-slate-500" title={f.name}>{f.name}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800">
+                      <div className="h-full rounded-full bg-secondary/70"
+                        style={{ width: `${Math.max(2, Math.min((f.importance / max) * 100, 100))}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Section>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <Section title={`Factor win rates — ${factors.length} calibrated`}>
           {factors.length === 0 ? (
             <Empty title="Uncalibrated" hint="Factor hit rates appear after a backtest run." />
@@ -158,4 +198,45 @@ function fmtMetric(k: string, v: number | undefined): string {
   if (k === 'win_rate') return fmtPct(v, 0);
   if (k === 'trades') return String(v);
   return v.toFixed(2);
+}
+
+function ReliabilityPlot({ buckets }:
+  { buckets: { predicted: number; realized: number; n: number }[] }) {
+  const W = 280, H = 220, pad = 30;
+  const x = (v: number) => pad + v * (W - pad * 2);
+  const y = (v: number) => H - pad - v * (H - pad * 2);
+  const maxN = Math.max(...buckets.map(b => b.n), 1);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+      {[0, 0.25, 0.5, 0.75, 1].map(t => (
+        <g key={t}>
+          <line x1={pad} y1={y(t)} x2={W - pad} y2={y(t)} stroke="var(--line)" strokeWidth="1" />
+          <text x={pad - 4} y={y(t) + 3} textAnchor="end" fontSize="7" fill="#64748b">
+            {Math.round(t * 100)}
+          </text>
+          <text x={x(t)} y={H - pad + 12} textAnchor="middle" fontSize="7" fill="#64748b">
+            {Math.round(t * 100)}
+          </text>
+        </g>
+      ))}
+      {/* perfect-calibration diagonal */}
+      <line x1={x(0)} y1={y(0)} x2={x(1)} y2={y(1)}
+        stroke="var(--line-strong)" strokeDasharray="4 3" strokeWidth="1" />
+      {/* observed reliability curve */}
+      <polyline fill="none" stroke="var(--primary)" strokeWidth="1.5"
+        points={buckets.map(b => `${x(b.predicted)},${y(b.realized)}`).join(' ')} />
+      {buckets.map((b, i) => (
+        <circle key={i} cx={x(b.predicted)} cy={y(b.realized)}
+          r={3 + 4 * (b.n / maxN)}
+          fill={Math.abs(b.predicted - b.realized) < 0.06 ? 'var(--success)' : 'var(--warning)'}
+          fillOpacity="0.85">
+          <title>{`predicted ${(b.predicted * 100).toFixed(0)}% → realized `
+            + `${(b.realized * 100).toFixed(0)}% (n=${b.n})`}</title>
+        </circle>
+      ))}
+      <text x={W / 2} y={H - 4} textAnchor="middle" fontSize="8" fill="#64748b">predicted win %</text>
+      <text x={9} y={H / 2} textAnchor="middle" fontSize="8" fill="#64748b"
+        transform={`rotate(-90 9 ${H / 2})`}>realized win %</text>
+    </svg>
+  );
 }

@@ -111,14 +111,16 @@ export default function ScannerView({ scan, paused, onPause, onResume, onSelect 
                 <div className={`num mt-0.5 text-xs ${m.chg24h_pct >= 0 ? 'text-success' : 'text-danger'}`}>
                   {m.chg24h_pct >= 0 ? '+' : ''}{m.chg24h_pct.toFixed(1)}%
                 </div>
-                <div className="mt-1 h-6 opacity-60">
-                  <Sparkline
-                    data={[m.last * 0.97, m.last * (1 + m.chg24h_pct / 200), m.last]}
-                    width={72}
-                    height={20}
-                    stroke={m.chg24h_pct >= 0 ? 'var(--success)' : 'var(--danger)'}
-                  />
-                </div>
+                {m.spark && m.spark.length > 1 && (
+                  <div className="mt-1 h-6 opacity-70">
+                    <Sparkline
+                      data={m.spark}
+                      width={72}
+                      height={20}
+                      stroke={m.chg24h_pct >= 0 ? 'var(--success)' : 'var(--danger)'}
+                    />
+                  </div>
+                )}
               </div>
             </button>
           ))}
@@ -126,7 +128,7 @@ export default function ScannerView({ scan, paused, onPause, onResume, onSelect 
         <div className="flex flex-wrap items-center gap-3 border-t border-line bg-surface-2/30 px-4 py-2 text-2xs text-slate-500 dark:bg-slate-800/20">
           <span className="inline-flex items-center gap-1.5"><Dot tone="primary" /> picked</span>
           <span className="inline-flex items-center gap-1.5"><span className="chip-dot bg-slate-500/50" /> candidate</span>
-          <span>tile color = 24h move · sparkline = placeholder</span>
+          <span>tile color = 24h move · sparkline = 24h price</span>
         </div>
       </Section>
 

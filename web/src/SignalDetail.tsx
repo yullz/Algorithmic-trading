@@ -119,6 +119,23 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
         lineStyle: LineStyle.Dotted, title: '30' });
     }
 
+    // Detected chart patterns as labeled markers (one per bar, bias-colored).
+    if (data.patterns?.length) {
+      const seen = new Set<number>();
+      const markers = [...data.patterns]
+        .sort((a, b) => a.time - b.time)
+        .filter(p => !seen.has(p.time) && seen.add(p.time))
+        .map(p => ({
+          time: p.time as UTCTimestamp,
+          position: (p.bias === 'bearish' ? 'aboveBar' : 'belowBar') as 'aboveBar' | 'belowBar',
+          color: p.bias === 'bearish' ? CHART_SHORT
+            : p.bias === 'bullish' ? CHART_LONG : CHART_SR,
+          shape: (p.bias === 'bearish' ? 'arrowDown' : 'arrowUp') as 'arrowDown' | 'arrowUp',
+          text: p.name.replace(/_/g, ' '),
+        }));
+      candles.setMarkers(markers);
+    }
+
     for (const lvl of data.sr_levels.slice(0, 8)) {
       candles.createPriceLine({
         price: lvl.price, color: CHART_SR, lineWidth: 1,
@@ -212,9 +229,17 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
                     <div className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Meta-model</div>
                     <div className="num mt-1 text-slate-900 dark:text-slate-200">{fmtPct(plan.ml_prob, 0)}
                       <span className="ml-2 text-2xs text-slate-500">
-                        blended at {fmtPct(plan.ml_weight, 0)}
+                        P(win) · blended at {fmtPct(plan.ml_weight, 0)}
                       </span>
                     </div>
+                    {plan.ml_ev_r != null && (
+                      <div className="num mt-1 text-sm">
+                        <span className={plan.ml_ev_r >= 0 ? 'text-success' : 'text-danger'}>
+                          {fmtR(plan.ml_ev_r)}
+                        </span>
+                        <span className="ml-2 text-2xs text-slate-500">predicted E[R] · reward head</span>
+                      </div>
+                    )}
                     {plan.ml_contribs.length > 0 && (
                       <div className="mt-2 text-2xs text-slate-500">
                         top drivers: <span className="text-slate-400">{plan.ml_contribs.join(', ')}</span>
