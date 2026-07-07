@@ -61,10 +61,20 @@
   - **P3-server-2** (`fd50893`): trade-linkage maps persisted to `reports/trade_links.json` + reloaded on
     startup — a restored position's close is now journaled instead of leaving the trade 'open' forever.
   - Tests → 138.
-  - **Remaining Phase 3 (data/network-dependent — need a live exchange to verify):** ccxt.pro WebSocket
-    streaming feed; tiered per-symbol maintenance-margin + funding-in-EV (need live ccxt risk-limit/funding
-    data); correlation-vs-open-book (needs return series threaded); typed WS lifecycle/alert events +
-    structured explainability payload (dashboard-enabling); close the learning loop.
+  - **P3-stream** (`04831b9`): `algotrader/data/stream.py` — ccxt.pro `StreamingFeed` (resilient per-symbol
+    watch loops, mock-tested) + a guarded server `price_ticker_loop` broadcasting typed `price_tick`
+    events; `streaming.enabled` config flag (default off; REST stays the signal source).
+  - **Remaining Phase 3 (need live ccxt data to implement/verify honestly):** tiered per-symbol
+    maintenance-margin + funding-in-EV; correlation-vs-open-book; more typed WS lifecycle/alert events;
+    close the learning loop.
+- **🟡 Phase 4 (dashboard) in progress:**
+  - **P4-1** (`ae38467`): breadth risk-on/off chip in the header (verified live — renders "neutral · 50%").
+  - **P4-2** (`05d0864`): live `price_tick` handling — positions' price/PnL/MTM update between scans when
+    streaming is on; fixed the stale `launch.json`. Verified live in the browser (server + dashboard,
+    breadth data, WS connected, zero console errors).
+  - **Remaining Phase 4:** full visual redesign across the views — live charts with indicator+pattern
+    overlays, calibration-reliability + ML-EV + SHAP analytics, microstructure panels, and a polish pass
+    (best done iteratively with the server running + preview screenshots).
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
