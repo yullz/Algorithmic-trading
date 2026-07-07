@@ -218,7 +218,7 @@ export interface Exposure {
 }
 
 export interface WSMessage {
-  type: 'hello' | 'scan' | 'positions' | 'exposure' | 'error';
+  type: 'hello' | 'scan' | 'positions' | 'exposure' | 'price_tick' | 'error';
   data: unknown;
   ts: string;
 }

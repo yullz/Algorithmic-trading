@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "algotrader-server",
-      "runtimeExecutable": "C:\\Users\\Windows\\Desktop\\Algorithmic trading\\.venv\\Scripts\\python.exe",
-      "runtimeArgs": ["C:\\Users\\Windows\\Desktop\\Algorithmic trading\\server\\main.py"],
+      "runtimeExecutable": "C:\\Users\\Windows\\Documents\\Algorithmic trading\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["C:\\Users\\Windows\\Documents\\Algorithmic trading\\server\\main.py"],
       "port": 8777,
       "autoPort": true
     }

@@ -71,6 +71,25 @@ export interface LiveState {
   closePosition: (symbol: string) => Promise<void>;
 }
 
+/** Apply a live price tick to open positions: refresh last_price, unrealized
+ *  PnL, and the mark-to-market equity so the UI moves between scans. */
+function applyPriceTick(prev: Positions | null, symbol: string,
+                        price: number): Positions | null {
+  if (!prev) return prev;
+  let changed = false;
+  const open_positions = prev.open_positions.map(p => {
+    if (p.symbol !== symbol) return p;
+    changed = true;
+    const sign = p.side === 'LONG' ? 1 : -1;
+    return { ...p, last_price: price,
+             unrealized_pnl: sign * (price - p.entry) * p.qty_open };
+  });
+  if (!changed) return prev;
+  const mtm_equity = prev.equity
+    + open_positions.reduce((s, p) => s + p.unrealized_pnl, 0);
+  return { ...prev, open_positions, mtm_equity };
+}
+
 /** WebSocket feed with auto-reconnect; falls back to polling while down. */
 export function useLive(): LiveState {
   const [scan, setScan] = useState<ScanResult | null>(null);
@@ -154,6 +173,13 @@ export function useLive(): LiveState {
             setPositions(msg.data as Positions);
           } else if (msg.type === 'exposure') {
             setExposure(msg.data as Exposure);
+          } else if (msg.type === 'price_tick') {
+            const d = msg.data as { symbol: string; price: number };
+            setPositions(prev => applyPriceTick(prev, d.symbol, d.price));
+            setScan(prev => (prev?.market
+              ? { ...prev, market: prev.market.map(m =>
+                  m.symbol === d.symbol ? { ...m, last: d.price } : m) }
+              : prev));
           } else if (msg.type === 'error') {
             const d = msg.data as { message?: string };
             pushError('ws', d.message || 'Unknown server error');
