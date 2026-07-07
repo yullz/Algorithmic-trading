@@ -232,23 +232,38 @@ def test_load_accepts_many_factor_columns(tmp_path):
     assert mm is not None, "a real multi-factor model must load (regression for C2)"
 
 
-def test_training_split_is_temporal(tmp_path, strong_dataset):
-    """The train/valid split must be by time, never shuffled — a shuffle would
-    leak future outcomes into training and inflate AUC + the earned blend weight.
+def test_training_is_time_ordered_regardless_of_input_order(tmp_path, strong_dataset):
+    """Training must be by TIME, never row order — a shuffle would leak future
+    outcomes into training. train() re-sorts by entry_time internally, so a
+    shuffled-on-disk dataset must yield IDENTICAL metrics to a pre-sorted one.
     """
+    sorted_ds = strong_dataset.sort_values("entry_time").reset_index(drop=True)
+    shuffled_ds = strong_dataset.sample(frac=1.0, random_state=3).reset_index(drop=True)
+    p1, p2 = tmp_path / "sorted.parquet", tmp_path / "shuffled.parquet"
+    o1, o2 = tmp_path / "a.pkl", tmp_path / "b.pkl"
+    sorted_ds.to_parquet(p1)
+    shuffled_ds.to_parquet(p2)
+
+    m1 = train.train(str(p1), str(o1), min_trades=10)
+    m2 = train.train(str(p2), str(o2), min_trades=10)
+
+    # Order-invariance == no dependence on shuffle == no leakage from row order.
+    assert m1["auc_valid"] == m2["auc_valid"]
+    assert m1["brier_valid"] == m2["brier_valid"]
+    assert m1["n_train"] == m2["n_train"]
+    assert m1["n_valid"] == m2["n_valid"]
+
+
+def test_isotonic_calibration_and_brier_gate(tmp_path, strong_dataset):
+    """A skillful model is calibrated, beats the base-rate Brier, and is trusted."""
     ds_path = tmp_path / "ds.parquet"
     out_path = tmp_path / "model.pkl"
-    # Shuffle the rows on disk; train() must re-sort by entry_time internally.
-    shuffled = strong_dataset.sample(frac=1.0, random_state=3).reset_index(drop=True)
-    shuffled.to_parquet(ds_path)
-
-    ordered = shuffled.sort_values("entry_time").reset_index(drop=True)
-    split = int(len(ordered) * 0.75)
-    last_train_time = ordered["entry_time"].iloc[split - 1]
-    first_valid_time = ordered["entry_time"].iloc[split]
-    # Sanity: the intended split boundary is strictly ordered in time.
-    assert last_train_time <= first_valid_time
+    strong_dataset.to_parquet(ds_path)
 
     meta = train.train(str(ds_path), str(out_path), min_trades=10)
-    assert meta["n_train"] == split
-    assert meta["n_valid"] == len(ordered) - split
+    assert meta["calibrated"] is True
+    assert meta["brier_valid"] < meta["brier_baseline"], "should have calibration skill"
+    assert meta["n_folds"] >= 1
+
+    mm = MetaModel.load(str(out_path), min_training_trades=10)
+    assert mm is not None and mm.weight > 0, "skillful, calibrated model must be trusted"

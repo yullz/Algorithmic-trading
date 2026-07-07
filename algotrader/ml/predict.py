@@ -31,9 +31,15 @@ class MetaModel:
         self.model = model
         self.meta = meta
         auc = float(meta.get("auc_valid", 0.5))
+        brier = float(meta.get("brier_valid", 1.0))
+        brier_baseline = float(meta.get("brier_baseline", 1.0))
         n_train = int(meta.get("n_train", 0))
         min_trades = int(meta.get("min_trades", 300))
-        if n_train < min_trades or auc <= 0.53:
+        # Trust is earned from OOS ranking skill (AUC) AND OOS calibration skill
+        # (Brier must beat a constant base-rate predictor). A high-AUC but
+        # miscalibrated model would otherwise size positions off distorted
+        # probabilities, since predict_proba is consumed literally in the blend.
+        if n_train < min_trades or auc <= 0.53 or brier >= brier_baseline:
             self.weight = 0.0
         else:
             self.weight = min(0.5, (auc - 0.53) * 5.0) * min(1.0, n_train / 2000.0)

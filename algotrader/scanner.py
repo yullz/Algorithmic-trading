@@ -149,15 +149,13 @@ class Scanner:
                       htf: Optional[pd.DataFrame],
                       btc_df: Optional[pd.DataFrame]) -> Optional[dict]:
         try:
-            extra = []
-            if btc_df is not None and symbol != _BTC:
-                try:
-                    from .indicators.indicators import relative_strength_evidence
-                    extra = relative_strength_evidence(df, btc_df)
-                except ImportError:
-                    pass
-            sig = self.engine.generate(df, symbol, tf, htf=htf,
-                                       extra_evidence=extra or None)
+            # NOTE: relative-strength / cross-asset (BTC) evidence is deliberately
+            # NOT injected here. It was previously live-only, which created a
+            # train/serve skew — the backtester never saw it, so it was never
+            # calibrated, yet it inflated live confidence. Phase 2 threads btc_df
+            # through engine.generate in BOTH the scanner and the backtester so
+            # these factors are calibrated exactly as they trade.
+            sig = self.engine.generate(df, symbol, tf, htf=htf)
             if sig is None:
                 return None
             plan = self.risk.build_plan(sig)
@@ -203,14 +201,9 @@ class Scanner:
                 out.append(c)
                 continue
             htf = data.get((c["symbol"], self.cfg.context_timeframe))
-            btc_df = data.get((_BTC, c["tf"]))
+            # RS/cross-asset evidence deferred to Phase 2 (see _generate_one) so
+            # live and backtest stay consistent and calibrated identically.
             extra = list(deriv)
-            if btc_df is not None and c["symbol"] != _BTC:
-                try:
-                    from .indicators.indicators import relative_strength_evidence
-                    extra += relative_strength_evidence(df, btc_df)
-                except ImportError:
-                    pass
             sig = self.engine.generate(df, c["symbol"], c["tf"], htf=htf,
                                        extra_evidence=extra)
             if sig is None:
