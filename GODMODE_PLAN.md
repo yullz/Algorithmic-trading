@@ -1,8 +1,31 @@
 # AlgoTrader → "Godmode" Upgrade Plan
 
-**Status:** Awaiting owner approval. No code changed yet.
+**Status:** Approved (correctness-first · real-money-eventual · Bybit streaming + full order-flow · full 21st.dev redesign).
 **Audit method:** 10 parallel subsystem readers + 1 principal-quant synthesis pass (Opus), cross-checked by hand on the core files.
 **Date:** 2026-07-07
+
+---
+
+## Progress log
+
+- **✅ Phase 0 — DONE** (`2d3ba4d`). C1–C5 fixed + verified; tests 106→117; walk-forward runs
+  end-to-end; JSON reports valid; git + CI initialized.
+- **✅ Phase 1 core — DONE** (`0e7fb8f`, `23fdc31`). The calibration circularity is broken:
+  - **P1a** OOS walk-forward is now the source of truth for `calibration.json` (in-sample saved only as
+    a diagnostic), factors gated on their OOS Wilson-lower bound.
+  - **P1a** recency weighting switched from a per-symbol positional index to **calendar time** (fixes the
+    pooled-across-symbols corruption of Kelly sizing + EV).
+  - **P1b** one `label_horizon_candles` knob drives both the backtest horizon and the live time-stop, so
+    the ML label matches what is actually traded.
+  - **P1c** removed the relative-strength/cross-asset **train/serve skew** (was live-only, uncalibrated).
+  - **P1d** ML rewritten: **purged/embargoed walk-forward CV**, **isotonic calibration**, **class_weight
+    dropped**, trust earned from OOS AUC **and** Brier skill. Verified end-to-end on a 110-col real
+    dataset (calibrated=True, trusted=True, loads through `MetaModel.load`). Tests → 119.
+  - **Deferred (with better homes):** full cross-asset/BTC wiring through both paths → **Phase 2** (needs
+    BTC streaming context); `confidence` reliability plot → **Phase 4**; cluster-adjusted effective-N
+    statistics → **Phase 5** (with PBO / deflated-Sharpe robustness package).
+
+---
 
 ---
 

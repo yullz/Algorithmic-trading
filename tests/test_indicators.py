@@ -91,11 +91,12 @@ def test_volatility_percentile_present_and_bounded(ohlcv_frame):
 
 
 def test_read_evidence_volatility_regime_thresholds(ohlcv_frame):
-    """High vol widens RSI/Stoch thresholds; low vol tightens them."""
+    """High vol widens RSI/Stoch thresholds; low vol tightens them. The regime
+    is now driven by atr_percentile (ATR/price, stationary), not raw-ATR rank."""
     indf = ind.compute_all(ohlcv_frame)
 
     # High-vol regime: RSI must exceed 80 to be overbought.
-    indf.loc[indf.index[-1], "volatility_percentile"] = 0.95
+    indf.loc[indf.index[-1], "atr_percentile"] = 0.95
     indf.loc[indf.index[-1], "rsi"] = 75.0
     ev = ind.read_evidence(indf)
     assert not any(e.name == "rsi_overbought" for e in ev)
@@ -103,11 +104,37 @@ def test_read_evidence_volatility_regime_thresholds(ohlcv_frame):
 
     # Low-vol regime: RSI above 65 is overbought.
     indf2 = ind.compute_all(ohlcv_frame)
-    indf2.loc[indf2.index[-1], "volatility_percentile"] = 0.05
+    indf2.loc[indf2.index[-1], "atr_percentile"] = 0.05
     indf2.loc[indf2.index[-1], "rsi"] = 68.0
     ev2 = ind.read_evidence(indf2)
     assert any(e.name == "rsi_overbought" for e in ev2)
     assert any(e.name == "volatility_regime_low" for e in ev2)
+
+
+def test_rsi_clean_rally_reads_overbought_not_neutral():
+    """A monotonic rally has zero average loss -> RSI must be ~100 (overbought),
+    not the misleading neutral 50 the old .fillna(50) produced."""
+    close = pd.Series(np.linspace(100.0, 200.0, 60))  # strictly increasing
+    r = ind.rsi(close, 14)
+    assert r.iloc[-1] > 95.0
+    valid = r.dropna()
+    assert ((valid >= 0.0) & (valid <= 100.0)).all()
+
+
+def test_squeeze_uses_tighter_keltner():
+    """The TTM squeeze band is 1.5x Keltner, so it fires strictly less often than
+    a 2.0x band would (fewer, more meaningful compressions)."""
+    rng = np.random.default_rng(3)
+    n = 200
+    close = 100 + np.cumsum(rng.normal(0, 0.3, n))
+    df = pd.DataFrame({
+        "open": close, "high": close + 0.4, "low": close - 0.4,
+        "close": close, "volume": rng.uniform(100, 200, n),
+    })
+    out = ind.compute_all(df)
+    wide = (out["bb_up"] < out["kc_up"]) & (out["bb_low"] > out["kc_low"])  # 2.0x
+    tight = out["squeeze_on"]                                               # 1.5x
+    assert int(tight.sum()) <= int(wide.sum())
 
 
 # --------------------------------------------------------------------------- #

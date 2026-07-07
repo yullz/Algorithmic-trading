@@ -49,7 +49,13 @@ def rsi(close: pd.Series, n: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1 / n, min_periods=n, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / n, min_periods=n, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    return (100 - 100 / (1 + rs)).fillna(50.0)
+    out = 100 - 100 / (1 + rs)
+    # A window with zero average loss is a clean rally -> RSI is 100 (max
+    # overbought), NOT neutral. Without this the fillna(50) below would suppress
+    # rsi_overbought evidence exactly when price is most extended (common on low
+    # timeframes). Warmup rows (avg_gain NaN) still fall through to 50.
+    out = out.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
+    return out.fillna(50.0)
 
 
 def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
@@ -350,9 +356,14 @@ def compute_all(df: pd.DataFrame) -> pd.DataFrame:
     st_line, st_dir = supertrend(df, 10, 3.0)
     out["supertrend"], out["supertrend_dir"] = st_line, st_dir
     out["kc_up"], out["kc_low"] = keltner(df, 20, 2.0)
-    # BB fully inside Keltner = volatility compression (TTM-style squeeze).
+    # BB fully inside Keltner = volatility compression (TTM-style squeeze). The
+    # canonical TTM squeeze uses a TIGHTER Keltner (1.5x) so BB-inside-KC is a
+    # meaningful compression; at 2.0 the channel is so wide the squeeze fires
+    # constantly and dilutes the signal. Keep kc_up/kc_low at 2.0 for any generic
+    # Keltner consumers and use a dedicated 1.5x band for the squeeze test.
     # NaN comparisons are False, so the warmup region is simply "no squeeze".
-    out["squeeze_on"] = (out["bb_up"] < out["kc_up"]) & (out["bb_low"] > out["kc_low"])
+    kc_sq_up, kc_sq_low = keltner(df, 20, 1.5)
+    out["squeeze_on"] = (out["bb_up"] < kc_sq_up) & (out["bb_low"] > kc_sq_low)
     out["dc_up"], out["dc_low"], out["dc_mid"] = donchian(df, 20)
     out["stochrsi_k"], out["stochrsi_d"] = stochrsi(df["close"])
     out["mfi"] = mfi(df, 14)
@@ -396,7 +407,13 @@ def read_evidence(ind: pd.DataFrame) -> list[Evidence]:
                            family=family).clamp())
 
     # Volatility regime: adapt oscillator overbought/oversold thresholds.
-    vol_pct = float(r.get("volatility_percentile", np.nan))
+    # Use the ATR/price percentile (stationary), NOT the raw-ATR percentile:
+    # raw ATR scales with price level, so for a symbol whose price drifted up
+    # over the window the raw percentile is biased high and wrongly widens the
+    # overbought/oversold bands. atr_percentile normalizes by close first.
+    vol_pct = float(r.get("atr_percentile", np.nan))
+    if pd.isna(vol_pct):
+        vol_pct = float(r.get("volatility_percentile", np.nan))
     if pd.isna(vol_pct):
         vol_pct = 0.5
     if vol_pct > 0.8:
