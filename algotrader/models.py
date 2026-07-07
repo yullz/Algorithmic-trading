@@ -128,6 +128,10 @@ class RiskConfig:
     max_concurrent_positions: int = 6
     max_total_margin_pct: float = 0.60    # sum of margins across open positions
     correlation_cap: float = 0.8          # >this return-correlation = same bet
+    # Cap on TOTAL open risk-in-R (sum of per-trade risk_amount) across the book,
+    # as a fraction of equity. Bounds worst-case loss if correlated positions all
+    # stop together — the gap the per-trade and margin caps miss.
+    max_portfolio_risk_pct: float = 0.06
     # ---- circuit breakers (live/paper executors) ----
     max_daily_loss_pct: float = 0.03      # halt new entries after -3% day
     max_consecutive_losses: int = 5       # halt after N straight losers

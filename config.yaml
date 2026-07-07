@@ -45,6 +45,7 @@ risk:
   max_concurrent_positions: 6
   max_total_margin_pct: 0.60
   correlation_cap: 0.8          # >this 30d return correlation = same bet
+  max_portfolio_risk_pct: 0.06  # cap on TOTAL open risk-in-R across all positions
   # ---- circuit breakers ----
   max_daily_loss_pct: 0.03      # halt new entries after a -3% day
   max_consecutive_losses: 5

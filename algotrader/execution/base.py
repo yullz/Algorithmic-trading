@@ -111,6 +111,15 @@ def portfolio_allows(cfg: RiskConfig, open_positions: list[PositionState],
     if equity > 0 and total_margin > equity * cfg.max_total_margin_pct:
         return False, (f"total margin {total_margin:.2f} would exceed "
                        f"{cfg.max_total_margin_pct:.0%} of equity")
+    # Total open risk-in-R across the book. This bounds worst-case loss if
+    # correlated positions all stop out together — N ~0.8-correlated alts can
+    # each pass every per-trade cap yet stack into one big drawdown, which the
+    # margin/count caps do not prevent.
+    total_open_risk = sum(float((p.plan or {}).get("risk_amount", 0.0) or 0.0)
+                          for p in open_positions) + plan.risk_amount
+    if equity > 0 and total_open_risk > equity * cfg.max_portfolio_risk_pct:
+        return False, (f"total open risk {total_open_risk / equity:.1%} would exceed "
+                       f"portfolio cap {cfg.max_portfolio_risk_pct:.0%}")
     return True, ""
 
 

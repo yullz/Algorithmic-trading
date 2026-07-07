@@ -192,3 +192,32 @@ def test_bybit_day_anchor_rolls_at_utc_boundary(monkeypatch, tmp_path):
     today = datetime.now(timezone.utc).date().isoformat()
     assert exe.day_anchor["date"] == today
     assert exe.day_anchor["equity"] == 1000.0  # re-anchored to CURRENT equity
+
+
+def test_portfolio_allows_caps_total_open_risk():
+    """Total open risk-in-R across the book is capped, so correlated positions
+    cannot each pass the per-trade cap and stack into one oversized drawdown."""
+    from algotrader.execution.base import PositionState, portfolio_allows
+
+    cfg = RiskConfig(account_equity=10_000.0, max_portfolio_risk_pct=0.06,
+                     max_concurrent_positions=20, max_total_margin_pct=100.0)
+    equity = 10_000.0
+
+    def _pos(i):
+        return PositionState(
+            id=f"A{i}", symbol=f"A{i}/USDT:USDT", timeframe="1h", side=Side.LONG,
+            entry=100.0, qty_initial=1.0, qty_open=1.0, stop=99.0, margin=1.0,
+            plan={"risk_amount": 100.0})
+
+    book = [_pos(i) for i in range(5)]  # 5 x 100 = 500 = 5% of 10k
+
+    # +0.5% -> 5.5% total, under the 6% cap.
+    small = _plan(symbol="NEW/USDT:USDT", entry=100.0, stop=50.0)   # risk_amount 50
+    ok, _why = portfolio_allows(cfg, book, small, equity)
+    assert ok
+
+    # +1.5% -> 6.5% total, over the cap -> blocked.
+    big = _plan(symbol="BIG/USDT:USDT", entry=200.0, stop=50.0)     # risk_amount 150
+    ok, why = portfolio_allows(cfg, book, big, equity)
+    assert not ok
+    assert "open risk" in why
