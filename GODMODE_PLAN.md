@@ -44,6 +44,20 @@
     features (**P2b**, needs timestamp-aligned universe layout); remaining pattern hardening (high/low
     fractal pivots, breakout volume confirmation).
 
+- **🟡 Phase 3 in progress** — risk hardening first (real-money-critical, testable without network):
+  - **P3-risk-1** (`cd97e45`): true dollar risk = `qty * stop_dist` recomputed after all size scaling, so
+    the volatile-regime haircut no longer leaves `risk_amount` overstating risk by `1/regime_mult` (which
+    corrupted fees_r, EV, and realized-R → calibration/Kelly).
+  - **P3-risk-2** (`27bf59b`): live Bybit circuit-breaker state now **persisted + UTC-rolled**
+    (`reports/live_state.json`) like the paper executor — the daily-loss anchor re-anchors at the day
+    boundary and the losing-streak survives restarts (was in-memory + anchored once).
+  - **Remaining Phase 3:** ccxt.pro **WebSocket streaming feed** (live candles, freshness guard,
+    closed-candle signals); tiered maintenance-margin (flat 0.5% underestimates alt liquidation); funding
+    in EV; correlation / BTC-beta / gross-notional caps enforced against the OPEN book; server hardening
+    (async locks, WAL SQLite off-loop, bounded socket queues, persistent trade linkage, structured
+    explainability payload, typed WS events, price ticker); close the learning loop (drift → retrain).
+  - Tests → 136.
+
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
 ---
