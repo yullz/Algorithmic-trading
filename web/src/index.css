@@ -27,13 +27,13 @@
   }
 
   .dark {
-    /* Dark trading palette */
-    --surface: #020617;
-    --surface-1: #0f172a;
-    --surface-2: #1e293b;
-    --surface-3: #334155;
-    --line: rgba(148, 163, 184, 0.12);
-    --line-strong: rgba(148, 163, 184, 0.22);
+    /* Dark matte neutral-grey palette (aligned to Tailwind `neutral`) */
+    --surface: #0a0a0a;
+    --surface-1: #161616;
+    --surface-2: #232323;
+    --surface-3: #333333;
+    --line: rgba(163, 163, 163, 0.10);
+    --line-strong: rgba(163, 163, 163, 0.18);
 
     --primary: #22d3ee;
     --primary-dim: rgba(34, 211, 238, 0.12);
@@ -50,11 +50,11 @@
   }
 
   html {
-    @apply bg-surface text-slate-600 antialiased;
+    @apply bg-surface text-neutral-600 antialiased;
   }
 
   html.dark {
-    @apply bg-slate-950 text-slate-300;
+    @apply bg-neutral-950 text-neutral-300;
   }
 
   body {
@@ -71,14 +71,14 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.18);
+    background: rgba(140, 140, 140, 0.20);
     border-radius: 5px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
 
   html.dark ::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.18);
+    background: rgba(140, 140, 140, 0.20);
   }
 }
 
@@ -88,11 +88,12 @@
   }
 
   .dark .card {
-    @apply border-white/10 bg-slate-900/80 shadow-panel backdrop-blur;
+    /* Matte: solid charcoal, hairline border, no gloss/blur, no drop shadow. */
+    @apply border-white/[0.06] bg-surface-1 shadow-none;
   }
 
   .card-glass {
-    @apply rounded-xl border border-white/10 bg-slate-900/80 shadow-panel backdrop-blur;
+    @apply rounded-xl border border-white/[0.06] bg-surface-1;
   }
 
   .num {
@@ -100,7 +101,7 @@
   }
 
   .th {
-    @apply px-3 py-2 text-left text-2xs font-semibold uppercase tracking-wider text-slate-500;
+    @apply px-3 py-2 text-left text-2xs font-semibold uppercase tracking-wider text-neutral-500;
   }
 
   .td {
@@ -108,27 +109,27 @@
   }
 
   .btn-tab {
-    @apply flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-surface-2 hover:text-slate-700;
+    @apply flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-neutral-500 transition-colors hover:bg-surface-2 hover:text-neutral-700;
   }
 
   .dark .btn-tab {
-    @apply text-slate-400 hover:bg-slate-800 hover:text-slate-100;
+    @apply text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100;
   }
 
   .btn-tab-active {
-    @apply bg-surface-2 text-slate-800;
+    @apply bg-surface-2 text-neutral-800;
   }
 
   .dark .btn-tab-active {
-    @apply bg-slate-800 text-slate-100;
+    @apply bg-neutral-800 text-neutral-100;
   }
 
   .btn-icon {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-surface-2 hover:text-slate-700;
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-surface-2 hover:text-neutral-700;
   }
 
   .dark .btn-icon {
-    @apply text-slate-400 hover:bg-slate-800 hover:text-slate-100;
+    @apply text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100;
   }
 
   .table-responsive {
@@ -144,7 +145,7 @@
   }
 
   .dark .progress-track {
-    @apply bg-slate-800;
+    @apply bg-neutral-800;
   }
 
   .progress-fill {

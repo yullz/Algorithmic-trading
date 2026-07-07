@@ -72,5 +72,32 @@ def test_streaming_feed_empty_symbols_is_noop():
     asyncio.run(feed.watch_prices([], lambda *a: None))  # must not raise
 
 
+def test_streaming_feed_watches_liquidations():
+    ex = MagicMock()
+    batches = [[{"side": "buy", "price": 100.0, "quoteValue": 5000.0}],
+               [{"side": "sell", "price": 99.0, "quoteValue": 3000.0}]]
+    state = {"i": 0}
+
+    async def fake_watch_liquidations(symbol):
+        i = state["i"]
+        state["i"] += 1
+        if i < len(batches):
+            return batches[i]
+        await asyncio.sleep(0.01)
+        raise asyncio.CancelledError()
+
+    ex.watch_liquidations = fake_watch_liquidations
+    feed = StreamingFeed(exchange=ex)
+    got = []
+
+    def on_liq(sym, ev):
+        got.append((sym, ev["side"]))
+        if len(got) >= 2:
+            feed.stop()
+
+    asyncio.run(feed.watch_liquidations(["BTC/USDT:USDT"], on_liq))
+    assert got == [("BTC/USDT:USDT", "buy"), ("BTC/USDT:USDT", "sell")]
+
+
 def test_available_true_when_ccxt_pro_present():
     assert StreamingFeed.available() is True

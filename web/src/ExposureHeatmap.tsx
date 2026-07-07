@@ -7,7 +7,7 @@ export default function ExposureHeatmap({ exposure }:
   if (!exposure) {
     return (
       <Section title="Exposure">
-        <div className="px-6 py-8 text-center text-sm text-slate-500">
+        <div className="px-6 py-8 text-center text-sm text-neutral-500">
           Waiting for portfolio exposure snapshot…
         </div>
       </Section>
@@ -29,20 +29,20 @@ function SectorCard({ sectors }: { sectors: Exposure['sectors'] }) {
   const totalNet = sectors.reduce((s, b) => s + Math.abs(b.net_notional), 0) || 1;
   return (
     <div className="card p-4">
-      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
         Sector
       </div>
       {sectors.length === 0 ? (
-        <div className="text-sm text-slate-500">No open positions</div>
+        <div className="text-sm text-neutral-500">No open positions</div>
       ) : (
         <div className="space-y-3">
           {sectors.map(s => (
             <div key={s.name}>
               <div className="mb-1 flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-900 dark:text-slate-100">{s.name}</span>
-                <span className="num text-2xs text-slate-500">{s.count} pos</span>
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</span>
+                <span className="num text-2xs text-neutral-500">{s.count} pos</span>
               </div>
-              <div className="relative h-2 w-full overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800">
+              <div className="relative h-2 w-full overflow-hidden rounded-full bg-surface-2 dark:bg-neutral-800">
                 <div
                   className="absolute top-0 h-full bg-success"
                   style={{
@@ -84,7 +84,7 @@ function CorrelationCard({ buckets }: { buckets: Exposure['correlation_buckets']
   };
   return (
     <div className="card p-4">
-      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
         BTC correlation
       </div>
       <div className="space-y-3">
@@ -93,10 +93,10 @@ function CorrelationCard({ buckets }: { buckets: Exposure['correlation_buckets']
           return (
             <div key={b.name}>
               <div className="mb-1 flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-900 dark:text-slate-100">{labels[b.name] || b.name}</span>
-                <span className="num text-2xs text-slate-500">{b.count} pos</span>
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">{labels[b.name] || b.name}</span>
+                <span className="num text-2xs text-neutral-500">{b.count} pos</span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2 dark:bg-neutral-800">
                 <div
                   className={`h-full rounded-full ${colors[b.name] || 'bg-primary'}`}
                   style={{ width: `${Math.min(100, pct * 100)}%` }}
@@ -106,7 +106,7 @@ function CorrelationCard({ buckets }: { buckets: Exposure['correlation_buckets']
                 <span className={b.net_notional >= 0 ? 'text-success' : 'text-danger'}>
                   {fmtSigned(b.net_notional)}
                 </span>
-                <span className="text-slate-500">{fmtPct(pct)}</span>
+                <span className="text-neutral-500">{fmtPct(pct)}</span>
               </div>
             </div>
           );
@@ -122,20 +122,20 @@ function SideCard({ sides }: { sides: Exposure['sides'] }) {
   const shortShare = gross > 0 ? short.notional / gross : 0;
   return (
     <div className="card p-4">
-      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
         Side summary
       </div>
       <div className="space-y-4">
         <div>
           <div className="mb-1 flex justify-between text-sm">
             <span className="font-medium text-success">Long</span>
-            <span className="num text-slate-900 dark:text-slate-100">{fmtMoney(long.notional)}</span>
+            <span className="num text-neutral-900 dark:text-neutral-100">{fmtMoney(long.notional)}</span>
           </div>
           <div className="mb-1 flex justify-between text-sm">
             <span className="font-medium text-danger">Short</span>
-            <span className="num text-slate-900 dark:text-slate-100">{fmtMoney(short.notional)}</span>
+            <span className="num text-neutral-900 dark:text-neutral-100">{fmtMoney(short.notional)}</span>
           </div>
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-2 dark:bg-neutral-800">
             <div className="flex h-full">
               <div className="h-full bg-success" style={{ width: `${longShare * 100}%` }} />
               <div className="h-full bg-danger" style={{ width: `${shortShare * 100}%` }} />
@@ -144,24 +144,24 @@ function SideCard({ sides }: { sides: Exposure['sides'] }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-slate-800/50">
-            <div className="text-2xs text-slate-500">Net exposure</div>
+          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-neutral-800/50">
+            <div className="text-2xs text-neutral-500">Net exposure</div>
             <div className={`num font-semibold ${net >= 0 ? 'text-success' : 'text-danger'}`}>
               {fmtSigned(net)}
             </div>
           </div>
-          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-slate-800/50">
-            <div className="text-2xs text-slate-500">Gross exposure</div>
-            <div className="num font-semibold text-slate-900 dark:text-slate-100">
+          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-neutral-800/50">
+            <div className="text-2xs text-neutral-500">Gross exposure</div>
+            <div className="num font-semibold text-neutral-900 dark:text-neutral-100">
               {fmtMoney(gross)}
             </div>
           </div>
-          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-slate-800/50">
-            <div className="text-2xs text-slate-500">Long margin</div>
+          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-neutral-800/50">
+            <div className="text-2xs text-neutral-500">Long margin</div>
             <div className="num font-semibold text-success">{fmtMoney(long.margin)}</div>
           </div>
-          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-slate-800/50">
-            <div className="text-2xs text-slate-500">Short margin</div>
+          <div className="rounded-md bg-surface-2 px-2 py-1.5 dark:bg-neutral-800/50">
+            <div className="text-2xs text-neutral-500">Short margin</div>
             <div className="num font-semibold text-danger">{fmtMoney(short.margin)}</div>
           </div>
         </div>

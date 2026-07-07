@@ -26,11 +26,11 @@ export default function StatusBar({ cfg, scan, positions, connected, health, err
     : 0;
 
   return (
-    <div className="sticky top-0 z-20 border-b border-line bg-surface-1/90 backdrop-blur dark:bg-slate-900/90">
+    <div className="sticky top-0 z-20 border-b border-line bg-surface-1 dark:bg-surface-1">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
         <div className="flex items-center gap-2">
           <Dot tone={connected ? 'success' : 'danger'} pulse={!connected} />
-          <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">Edge Terminal</span>
+          <span className="text-sm font-bold tracking-tight text-neutral-900 dark:text-neutral-100">Edge Terminal</span>
         </div>
 
         <Chip>
@@ -39,12 +39,12 @@ export default function StatusBar({ cfg, scan, positions, connected, health, err
         </Chip>
 
         <div className="flex items-center gap-1.5">
-          <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">BTC</span>
+          <span className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">BTC</span>
           <RegimeChip regime={scan?.btc_regime ?? ''} />
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Breadth</span>
+          <span className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">Breadth</span>
           <BreadthChip breadth={scan?.breadth} />
         </div>
 
@@ -57,17 +57,17 @@ export default function StatusBar({ cfg, scan, positions, connected, health, err
         <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1.5">
           {positions && (
             <>
-              <span className="num text-sm font-semibold text-slate-900 dark:text-slate-200">
-                {fmtMoney(positions.mtm_equity)} <span className="text-2xs font-normal text-slate-500">USDT</span>
+              <span className="num text-sm font-semibold text-neutral-900 dark:text-neutral-200">
+                {fmtMoney(positions.mtm_equity)} <span className="text-2xs font-normal text-neutral-500">USDT</span>
               </span>
               <span className={`num text-sm font-semibold ${dayPnl >= 0 ? 'text-success' : 'text-danger'}`}>
-                {dayPnl >= 0 ? '+' : ''}{fmtMoney(dayPnl)} <span className="text-2xs font-normal text-slate-500">today</span>
+                {dayPnl >= 0 ? '+' : ''}{fmtMoney(dayPnl)} <span className="text-2xs font-normal text-neutral-500">today</span>
               </span>
             </>
           )}
 
           <div className="flex items-center gap-2">
-            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800" title={`scan age / interval`}>
+            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-2 dark:bg-neutral-800" title={`scan age / interval`}>
               <div
                 className={`h-full rounded-full ${
                   scanTone === 'success' ? 'bg-success'
@@ -87,7 +87,7 @@ export default function StatusBar({ cfg, scan, positions, connected, health, err
 
           <button
             onClick={onToggleErrors}
-            className="relative rounded-md p-1.5 text-slate-500 transition-colors hover:bg-surface-2 hover:text-slate-700 dark:hover:text-slate-300"
+            className="relative rounded-md p-1.5 text-neutral-500 transition-colors hover:bg-surface-2 hover:text-neutral-700 dark:hover:text-neutral-300"
             aria-label="Error log"
             title="Error log"
           >
@@ -109,8 +109,8 @@ export default function StatusBar({ cfg, scan, positions, connected, health, err
 function SystemHealth({ health }: { health: Health | null }) {
   if (!health) {
     return (
-      <div className="border-t border-line bg-surface-1/70 px-4 py-1.5 dark:bg-slate-900/70">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 text-2xs text-slate-500">
+      <div className="border-t border-line bg-surface-1/70 px-4 py-1.5 dark:bg-neutral-900/70">
+        <div className="mx-auto flex max-w-7xl items-center gap-3 text-2xs text-neutral-500">
           System health loading…
         </div>
       </div>
@@ -127,7 +127,7 @@ function SystemHealth({ health }: { health: Health | null }) {
   const anyBreaker = cb.kill_switch || cb.daily_loss_triggered || cb.losing_streak_triggered;
 
   return (
-    <div className="border-t border-line bg-surface-1/70 px-4 py-1.5 dark:bg-slate-900/70">
+    <div className="border-t border-line bg-surface-1/70 px-4 py-1.5 dark:bg-neutral-900/70">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-1 text-2xs">
         <HealthChip
           tone={ageTone}
@@ -155,7 +155,7 @@ function SystemHealth({ health }: { health: Health | null }) {
           value={anyBreaker ? 'TRIPPED' : 'ok'}
         />
 
-        <div className="ml-auto flex items-center gap-3 text-slate-500">
+        <div className="ml-auto flex items-center gap-3 text-neutral-500">
           {cb.kill_switch && <span className="font-medium text-danger">KILL SWITCH</span>}
           <span>daily DD {fmtPct(cb.daily_loss_pct / 100, 2)}</span>
           <span>streak {cb.consecutive_losses}</span>
@@ -171,7 +171,7 @@ function HealthChip({ tone, label, value }:
   return (
     <div className="flex items-center gap-1.5">
       <Dot tone={tone} />
-      <span className="text-slate-500">{label}:</span>
+      <span className="text-neutral-500">{label}:</span>
       <span className={`font-medium ${
         tone === 'success' ? 'text-success'
         : tone === 'warning' ? 'text-warning'

@@ -61,6 +61,11 @@ _scan_paused.set()  # running by default
 # PaperExecutor, whose position list and state file are not otherwise guarded.
 _exec_lock = asyncio.Lock()
 
+# Rolling recent liquidations per symbol — filled by the streaming watcher when
+# streaming is enabled, drained by /api/liquidations for the detail drawer.
+_liquidations: dict[str, list] = {}
+_LIQ_KEEP = 40
+
 # Track which positions have been journaled so we only record opens once.
 _logged_positions: set[str] = set()
 _closed_trade_ids: set[str] = set()
@@ -356,6 +361,20 @@ async def price_ticker_loop() -> None:
                                                   * (price - pos.entry) * pos.qty_open)
                 await broadcast("price_tick", {"symbol": sym, "price": price, "ts": ts})
 
+            async def on_liq(sym: str, ev: dict) -> None:
+                item = {
+                    "symbol": sym, "side": ev.get("side"),
+                    "price": float(ev.get("price") or 0.0),
+                    "value": float(ev.get("quoteValue")
+                                   or (ev.get("amount") or 0) * (ev.get("price") or 0)
+                                   or 0.0),
+                    "ts": utcnow_iso(),
+                }
+                buf = _liquidations.setdefault(sym, [])
+                buf.append(item)
+                del buf[:-_LIQ_KEEP]
+                await broadcast("liquidation", item)
+
             async def resubscribe_when_positions_change() -> None:
                 while not feed._stop.is_set():
                     await asyncio.sleep(5)
@@ -363,6 +382,7 @@ async def price_ticker_loop() -> None:
                         feed.stop()  # break the watch; the outer loop re-subscribes
 
             await asyncio.gather(feed.watch_prices(symbols, on_tick),
+                                 feed.watch_liquidations(symbols, on_liq),
                                  resubscribe_when_positions_change())
     except asyncio.CancelledError:
         pass
@@ -736,7 +756,22 @@ async def api_derivatives(symbol: str):
     if ex is None:
         return {"present": False}
     out = {"present": True, "symbol": symbol, "funding_rate": None,
-           "oi": None, "oi_change_pct": None}
+           "oi": None, "oi_change_pct": None, "basis_pct": None}
+    try:
+        # Perp-spot basis: (perp - spot) / spot. Positive = perp trades rich
+        # (contango, leveraged-long lean); negative = backwardation. The swap
+        # client doesn't load spot markets, so hit Bybit's raw spot-ticker
+        # endpoint directly (no market load needed) for the spot price.
+        base = symbol.replace("/", "").replace(":USDT", "")  # OP/USDT:USDT -> OPUSDT
+        perp_last = float((await ex.fetch_ticker(symbol)).get("last") or 0.0)
+        spot_resp = await ex.public_get_v5_market_tickers(
+            {"category": "spot", "symbol": base})
+        lst = (spot_resp.get("result") or {}).get("list") or []
+        spot_last = float(lst[0]["lastPrice"]) if lst else 0.0
+        if perp_last > 0 and spot_last > 0:
+            out["basis_pct"] = round((perp_last - spot_last) / spot_last * 100, 4)
+    except Exception as e:
+        log.debug("basis fetch failed for %s: %s", symbol, e)
     try:
         fr = await ex.fetch_funding_rate(symbol)
         rate = fr.get("fundingRate") if isinstance(fr, dict) else None
@@ -755,6 +790,14 @@ async def api_derivatives(symbol: str):
     except Exception as e:
         log.debug("OI fetch failed for %s: %s", symbol, e)
     return out
+
+
+@app.get("/api/liquidations")
+def api_liquidations(symbol: str, limit: int = 20):
+    """Recent liquidations for a symbol (populated live when streaming is on)."""
+    buf = _liquidations.get(symbol, [])
+    return {"symbol": symbol, "streaming": cfg.streaming_enabled,
+            "liquidations": list(reversed(buf[-limit:]))}
 
 
 @app.websocket("/ws")

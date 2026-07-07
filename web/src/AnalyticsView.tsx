@@ -67,7 +67,7 @@ export default function AnalyticsView() {
             <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
               <div className="table-responsive rounded-lg border border-line">
                 <table className="w-full text-sm">
-                  <thead className="bg-surface-2/50 dark:bg-slate-800/40">
+                  <thead className="bg-surface-2/50 dark:bg-neutral-800/40">
                     <tr>
                       <th className="th">metric</th>
                       <th className="th text-right">in-sample</th>
@@ -76,10 +76,10 @@ export default function AnalyticsView() {
                   </thead>
                   <tbody>
                     {(['trades', 'win_rate', 'expectancy_r', 'profit_factor', 'max_drawdown_r'] as const).map(k => (
-                      <tr key={k} className="hover:bg-surface-2 dark:hover:bg-slate-800/30">
-                        <td className="td text-slate-500">{k.replace(/_/g, ' ')}</td>
+                      <tr key={k} className="hover:bg-surface-2 dark:hover:bg-neutral-800/30">
+                        <td className="td text-neutral-500">{k.replace(/_/g, ' ')}</td>
                         <td className="td num text-right">{fmtMetric(k, wf.in_sample?.[k])}</td>
-                        <td className="td num text-right font-medium text-slate-900 dark:text-slate-100">
+                        <td className="td num text-right font-medium text-neutral-900 dark:text-neutral-100">
                           {fmtMetric(k, wf.out_of_sample?.[k])}
                         </td>
                       </tr>
@@ -89,7 +89,7 @@ export default function AnalyticsView() {
               </div>
               {wf.oos_equity_curve && wf.oos_equity_curve.length > 1 && (
                 <div className="card flex min-w-[220px] flex-col items-center justify-center gap-2 p-4">
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">OOS equity (R)</span>
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">OOS equity (R)</span>
                   <Sparkline data={wf.oos_equity_curve} width={200} height={64} fill="var(--secondary)" stroke="var(--secondary)" />
                 </div>
               )}
@@ -106,7 +106,7 @@ export default function AnalyticsView() {
           ) : (
             <div className="p-4">
               <div className="mx-auto max-w-sm"><ReliabilityPlot buckets={rel.buckets} /></div>
-              <p className="mt-2 text-center text-2xs text-slate-500">
+              <p className="mt-2 text-center text-2xs text-neutral-500">
                 {rel.n?.toLocaleString()} trades · points on the diagonal = well-calibrated
               </p>
             </div>
@@ -123,8 +123,8 @@ export default function AnalyticsView() {
                 const max = ml.top_features![0].importance || 1;
                 return (
                   <div key={f.name} className="flex items-center gap-2">
-                    <span className="num w-40 truncate text-2xs text-slate-500" title={f.name}>{f.name}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800">
+                    <span className="num w-40 truncate text-2xs text-neutral-500" title={f.name}>{f.name}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2 dark:bg-neutral-800">
                       <div className="h-full rounded-full bg-secondary/70"
                         style={{ width: `${Math.max(2, Math.min((f.importance / max) * 100, 100))}%` }} />
                     </div>
@@ -144,15 +144,15 @@ export default function AnalyticsView() {
             <div className="max-h-[28rem] space-y-2 overflow-y-auto p-4">
               {factors.map(([name, rate]) => (
                 <div key={name} className="flex items-center gap-3">
-                  <span className="num w-48 truncate text-2xs text-slate-500" title={name}>{name}</span>
-                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800">
-                    <div className="absolute inset-y-0 left-1/2 w-px bg-slate-500/40" title="50%" />
+                  <span className="num w-48 truncate text-2xs text-neutral-500" title={name}>{name}</span>
+                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-surface-2 dark:bg-neutral-800">
+                    <div className="absolute inset-y-0 left-1/2 w-px bg-neutral-500/40" title="50%" />
                     <div
                       className={`h-full rounded-full ${rate >= 0.5 ? 'bg-success/70' : 'bg-danger/70'}`}
                       style={{ width: `${Math.min(rate * 100, 100)}%` }}
                     />
                   </div>
-                  <span className="num w-10 text-right text-2xs text-slate-700 dark:text-slate-300">{fmtPct(rate, 0)}</span>
+                  <span className="num w-10 text-right text-2xs text-neutral-700 dark:text-neutral-300">{fmtPct(rate, 0)}</span>
                 </div>
               ))}
             </div>
@@ -169,7 +169,7 @@ export default function AnalyticsView() {
                 <Chip tone={ml.trusted ? 'success' : 'warning'}>
                   {ml.trusted ? 'TRUSTED — in the blend' : 'NOT TRUSTED — rules only'}
                 </Chip>
-                <span className="text-2xs text-slate-500">trained {ml.trained_at?.slice(0, 16)}</span>
+                <span className="text-2xs text-neutral-500">trained {ml.trained_at?.slice(0, 16)}</span>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <Stat label="OOS AUC" value={(ml.auc_valid ?? 0).toFixed(3)}
@@ -180,7 +180,7 @@ export default function AnalyticsView() {
                 <Stat label="Brier score" value={(ml.brier_valid ?? 0).toFixed(3)} sub="lower is better" />
                 <Stat label="base win rate" value={fmtPct(ml.base_rate ?? 0, 0)} sub="class balance" />
               </div>
-              <p className="text-2xs leading-relaxed text-slate-500">
+              <p className="text-2xs leading-relaxed text-neutral-500">
                 The model re-scores rule-approved setups only. Its blend weight is
                 earned from out-of-sample skill and capped at 50% — and the final
                 estimate always stays inside the 30–78% honesty cap.

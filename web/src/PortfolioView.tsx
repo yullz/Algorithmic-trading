@@ -138,19 +138,19 @@ function EquityCurveCard({ curve }: { curve: [string, number][] }) {
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <div className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Equity</div>
+          <div className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">Equity</div>
           <div className={`num text-xl font-semibold ${change >= 0 ? 'text-success' : 'text-danger'}`}>
             {fmtMoney(end)}
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Total change</div>
+          <div className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">Total change</div>
           <div className={`num font-semibold ${change >= 0 ? 'text-success' : 'text-danger'}`}>
             {fmtSigned(change)} ({fmtPct(change / Math.max(start, 1))})
           </div>
         </div>
       </div>
-      <div ref={ref} className="h-60 w-full rounded-lg bg-surface-2/50 dark:bg-slate-800/30" />
+      <div ref={ref} className="h-60 w-full rounded-lg bg-surface-2/50 dark:bg-neutral-800/30" />
     </div>
   );
 }
@@ -180,8 +180,8 @@ function PositionCard({ p, now, onClose, onToast }:
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-baseline gap-2">
-            <span className="text-base font-semibold text-slate-900 dark:text-slate-100">{p.symbol.split('/')[0]}</span>
-            <span className="text-2xs text-slate-500">{p.timeframe}</span>
+            <span className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{p.symbol.split('/')[0]}</span>
+            <span className="text-2xs text-neutral-500">{p.timeframe}</span>
           </div>
           <div className="mt-1 flex items-center gap-2">
             <SideTag side={p.side} />
@@ -193,7 +193,7 @@ function PositionCard({ p, now, onClose, onToast }:
           <div className={`num font-semibold ${p.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}`}>
             {fmtSigned(p.unrealized_pnl)}
           </div>
-          <div className="text-2xs text-slate-500">uPnL USDT</div>
+          <div className="text-2xs text-neutral-500">uPnL USDT</div>
         </div>
       </div>
 
@@ -207,10 +207,10 @@ function PositionCard({ p, now, onClose, onToast }:
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-2xs text-slate-500" title="take-profit ladder fills">
+        <div className="flex items-center gap-1.5 text-2xs text-neutral-500" title="take-profit ladder fills">
           <span>TP ladder</span>
           {p.take_profits.map((tp, i) => (
-            <span key={i} className={tp[3] ? 'text-success' : 'text-slate-600'}>●</span>
+            <span key={i} className={tp[3] ? 'text-success' : 'text-neutral-600'}>●</span>
           ))}
           <span className="ml-1">{tpFilled}/{tpTotal}</span>
         </div>
@@ -230,10 +230,10 @@ function KV({ k, v, tone }:
   { k: string; v: string; tone?: 'success' | 'danger' }) {
   const color = tone === 'success' ? 'text-success'
     : tone === 'danger' ? 'text-danger'
-    : 'text-slate-900 dark:text-slate-200';
+    : 'text-neutral-900 dark:text-neutral-200';
   return (
-    <div className="flex justify-between rounded-md bg-surface-2 px-2 py-1 dark:bg-slate-800/50">
-      <span className="text-2xs text-slate-500">{k}</span>
+    <div className="flex justify-between rounded-md bg-surface-2 px-2 py-1 dark:bg-neutral-800/50">
+      <span className="text-2xs text-neutral-500">{k}</span>
       <span className={`num text-xs font-medium ${color}`}>{v}</span>
     </div>
   );
@@ -264,7 +264,7 @@ function ClosedTradesTable({ trades, now }: { trades: ClosedTrade[]; now: number
 
   const header = (key: SortKey, label: string) => (
     <th
-      className="th cursor-pointer select-none hover:text-slate-400"
+      className="th cursor-pointer select-none hover:text-neutral-400"
       onClick={() => {
         if (sort === key) setDir(d => d === 'asc' ? 'desc' : 'asc');
         else { setSort(key); setDir('desc'); }
@@ -284,20 +284,20 @@ function ClosedTradesTable({ trades, now }: { trades: ClosedTrade[]; now: number
             className={`rounded-md border px-2.5 py-1 text-2xs font-medium capitalize transition-colors ${
               filter === f
                 ? 'border-primary/30 bg-primary-dim text-primary'
-                : 'border-line bg-surface-2 text-slate-500 hover:text-slate-700 dark:bg-slate-800 dark:hover:text-slate-300'
+                : 'border-line bg-surface-2 text-neutral-500 hover:text-neutral-700 dark:bg-neutral-800 dark:hover:text-neutral-300'
             }`}
           >
             {f}
           </button>
         ))}
-        <span className="ml-auto text-2xs text-slate-500">
+        <span className="ml-auto text-2xs text-neutral-500">
           showing {filtered.length} of {trades.length}
         </span>
       </div>
 
       <div className="table-responsive max-h-96 rounded-lg border border-line">
         <table className="w-full whitespace-nowrap text-sm">
-          <thead className="sticky top-0 z-10 bg-surface-1 dark:bg-slate-900">
+          <thead className="sticky top-0 z-10 bg-surface-1 dark:bg-neutral-900">
             <tr>
               {header('symbol', 'symbol')}
               <th className="th">side</th>
@@ -309,21 +309,21 @@ function ClosedTradesTable({ trades, now }: { trades: ClosedTrade[]; now: number
           </thead>
           <tbody>
             {filtered.map(t => (
-              <tr key={t.id} className="transition-colors hover:bg-surface-2 dark:hover:bg-slate-800/60">
+              <tr key={t.id} className="transition-colors hover:bg-surface-2 dark:hover:bg-neutral-800/60">
                 <td className="td">
                   <span className="mr-2 align-middle"><Dot tone={t.win ? 'success' : 'danger'} /></span>
-                  <span className="font-medium text-slate-900 dark:text-slate-200">{t.symbol.split('/')[0]}</span>
-                  <span className="ml-1 text-2xs text-slate-500">{t.timeframe}</span>
+                  <span className="font-medium text-neutral-900 dark:text-neutral-200">{t.symbol.split('/')[0]}</span>
+                  <span className="ml-1 text-2xs text-neutral-500">{t.timeframe}</span>
                 </td>
-                <td className="td text-2xs text-slate-500">{t.side}</td>
+                <td className="td text-2xs text-neutral-500">{t.side}</td>
                 <td className={`td num font-medium ${t.r >= 0 ? 'text-success' : 'text-danger'}`}>
                   {fmtSigned(t.r)}R
                 </td>
                 <td className={`td num ${t.pnl >= 0 ? 'text-success' : 'text-danger'}`}>
                   {fmtSigned(t.pnl)}
                 </td>
-                <td className="td text-2xs text-slate-500">{t.exit_reason}</td>
-                <td className="td text-2xs text-slate-500">{timeAgo(t.closed_at, now)}</td>
+                <td className="td text-2xs text-neutral-500">{t.exit_reason}</td>
+                <td className="td text-2xs text-neutral-500">{timeAgo(t.closed_at, now)}</td>
               </tr>
             ))}
           </tbody>

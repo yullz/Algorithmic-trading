@@ -5,7 +5,7 @@ import {
 import { get } from './api';
 import { fmtMoney, fmtPct, fmtPrice, fmtR } from './format';
 import { ConfBar, Dot, RegimeChip, SideTag } from './ui';
-import type { CandlesResponse, Derivatives, Plan } from './types';
+import type { CandlesResponse, Derivatives, Liquidations, Plan } from './types';
 
 const BLOCK_TITLES = ['Thesis', 'Why it may work', 'Why it may lose', 'Caveats'];
 
@@ -30,10 +30,14 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
   const [activeTf, setActiveTf] = useState(tf);
   useEffect(() => setActiveTf(tf), [symbol, tf]);  // reset when a new signal opens
   const [deriv, setDeriv] = useState<Derivatives | null>(null);
+  const [liqs, setLiqs] = useState<Liquidations | null>(null);
   useEffect(() => {
     setDeriv(null);
+    setLiqs(null);
     get<Derivatives>(`/api/derivatives?symbol=${encodeURIComponent(symbol)}`)
       .then(setDeriv).catch(() => {});
+    get<Liquidations>(`/api/liquidations?symbol=${encodeURIComponent(symbol)}`)
+      .then(setLiqs).catch(() => {});
   }, [symbol]);
 
   useEffect(() => {
@@ -180,20 +184,20 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="flex h-full w-full max-w-5xl flex-col overflow-y-auto border-l border-line bg-surface-1 shadow-2xl dark:bg-slate-950"
+        className="flex h-full w-full max-w-5xl flex-col overflow-y-auto border-l border-line bg-surface-1 shadow-2xl dark:bg-neutral-950"
         onClick={e => e.stopPropagation()}
       >
-        <header className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-line bg-surface-1/95 px-5 py-3 backdrop-blur dark:bg-slate-900/95">
+        <header className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-line bg-surface-1/95 px-5 py-3 backdrop-blur dark:bg-neutral-900/95">
           <div className="flex items-baseline gap-2">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{symbol.split('/')[0]}</h2>
-            {quote && <span className="text-sm text-slate-500">/{quote}</span>}
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{symbol.split('/')[0]}</h2>
+            {quote && <span className="text-sm text-neutral-500">/{quote}</span>}
           </div>
-          <div className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5 dark:bg-slate-800">
+          <div className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5 dark:bg-neutral-800">
             {['15m', '1h', '4h', '1d'].map(t => (
               <button key={t} onClick={() => setActiveTf(t)}
                 className={`rounded-md px-2 py-0.5 text-2xs font-medium transition-colors ${
                   activeTf === t ? 'bg-primary/20 text-primary'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}>
+                    : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'}`}>
                 {t}
               </button>
             ))}
@@ -202,7 +206,7 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
           {plan && <RegimeChip regime={plan.regime} />}
           {plan && <ConfBar value={plan.confidence} />}
           <button onClick={onClose}
-            className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-surface-2 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100">
+            className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-surface-2 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
             ✕
           </button>
         </header>
@@ -210,7 +214,7 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
         <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="space-y-3">
             <div className="card h-[420px] p-2" ref={containerRef}>
-              {!data && !err && <div className="p-4 text-2xs text-slate-500">loading candles…</div>}
+              {!data && !err && <div className="p-4 text-2xs text-neutral-500">loading candles…</div>}
               {err && <div className="p-4 text-2xs text-danger">{err}</div>}
             </div>
             <ChartLegend />
@@ -220,7 +224,7 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
             {plan ? (
               <>
                 <div className="card p-4">
-                  <div className="mb-3 text-2xs font-semibold uppercase tracking-wider text-slate-500">Risk metrics</div>
+                  <div className="mb-3 text-2xs font-semibold uppercase tracking-wider text-neutral-500">Risk metrics</div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                     <KV k="entry" v={fmtPrice(plan.entry)} />
                     <KV k="stop" v={fmtPrice(plan.stop_loss)} tone="danger" />
@@ -243,9 +247,9 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
 
                 {plan.ml_prob !== null && (
                   <div className="card p-4">
-                    <div className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Meta-model</div>
-                    <div className="num mt-1 text-slate-900 dark:text-slate-200">{fmtPct(plan.ml_prob, 0)}
-                      <span className="ml-2 text-2xs text-slate-500">
+                    <div className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">Meta-model</div>
+                    <div className="num mt-1 text-neutral-900 dark:text-neutral-200">{fmtPct(plan.ml_prob, 0)}
+                      <span className="ml-2 text-2xs text-neutral-500">
                         P(win) · blended at {fmtPct(plan.ml_weight, 0)}
                       </span>
                     </div>
@@ -254,12 +258,12 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
                         <span className={plan.ml_ev_r >= 0 ? 'text-success' : 'text-danger'}>
                           {fmtR(plan.ml_ev_r)}
                         </span>
-                        <span className="ml-2 text-2xs text-slate-500">predicted E[R] · reward head</span>
+                        <span className="ml-2 text-2xs text-neutral-500">predicted E[R] · reward head</span>
                       </div>
                     )}
                     {plan.ml_contribs.length > 0 && (
-                      <div className="mt-2 text-2xs text-slate-500">
-                        top drivers: <span className="text-slate-400">{plan.ml_contribs.join(', ')}</span>
+                      <div className="mt-2 text-2xs text-neutral-500">
+                        top drivers: <span className="text-neutral-400">{plan.ml_contribs.join(', ')}</span>
                       </div>
                     )}
                   </div>
@@ -270,50 +274,84 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
                     <div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wider text-warning">
                       <Dot tone="warning" /> warnings
                     </div>
-                    <ul className="mt-2 list-inside list-disc space-y-1 text-2xs text-slate-600 dark:text-slate-300">
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-2xs text-neutral-600 dark:text-neutral-300">
                       {plan.warnings.map((w, i) => <li key={i}>{w}</li>)}
                     </ul>
                   </div>
                 )}
               </>
             ) : (
-              <div className="card p-4 text-2xs text-slate-500">
+              <div className="card p-4 text-2xs text-neutral-500">
                 No active signal for this symbol — chart only. S/R levels are drawn
                 from touch-counted pivots.
               </div>
             )}
 
-            {deriv?.present && (deriv.funding_rate != null || deriv.oi_change_pct != null) && (
+            {deriv?.present && (deriv.funding_rate != null || deriv.oi_change_pct != null
+              || deriv.basis_pct != null) && (
               <div className="card p-4">
-                <div className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Derivatives</div>
+                <div className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">Derivatives</div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                   {deriv.funding_rate != null && (
                     <>
-                      <span className="text-2xs uppercase tracking-wide text-slate-500">funding · 8h</span>
+                      <span className="text-2xs uppercase tracking-wide text-neutral-500">funding · 8h</span>
                       <span className={`num text-right ${deriv.funding_rate >= 0 ? 'text-danger' : 'text-success'}`}>
                         {(deriv.funding_rate * 100).toFixed(4)}%
                       </span>
-                      <span className="text-2xs uppercase tracking-wide text-slate-500">annualized</span>
-                      <span className="num text-right text-slate-500">
+                      <span className="text-2xs uppercase tracking-wide text-neutral-500">annualized</span>
+                      <span className="num text-right text-neutral-500">
                         {(deriv.funding_rate * 3 * 365 * 100).toFixed(0)}%
                       </span>
                     </>
                   )}
                   {deriv.oi_change_pct != null && (
                     <>
-                      <span className="text-2xs uppercase tracking-wide text-slate-500">OI · 12h</span>
+                      <span className="text-2xs uppercase tracking-wide text-neutral-500">OI · 12h</span>
                       <span className={`num text-right ${deriv.oi_change_pct >= 0 ? 'text-success' : 'text-danger'}`}>
                         {deriv.oi_change_pct >= 0 ? '+' : ''}{deriv.oi_change_pct}%
                       </span>
                     </>
                   )}
+                  {deriv.basis_pct != null && (
+                    <>
+                      <span className="text-2xs uppercase tracking-wide text-neutral-500">basis · perp-spot</span>
+                      <span className={`num text-right ${deriv.basis_pct >= 0 ? 'text-success' : 'text-danger'}`}>
+                        {deriv.basis_pct >= 0 ? '+' : ''}{deriv.basis_pct}%
+                      </span>
+                    </>
+                  )}
                 </div>
                 {deriv.funding_rate != null && (
-                  <p className="mt-2 text-2xs leading-relaxed text-slate-500">
+                  <p className="mt-2 text-2xs leading-relaxed text-neutral-500">
                     {deriv.funding_rate >= 0
                       ? 'Longs pay shorts — crowded longs (contrarian bearish if extreme).'
                       : 'Shorts pay longs — crowded shorts (squeeze fuel if extreme).'}
                   </p>
+                )}
+              </div>
+            )}
+
+            {liqs && (
+              <div className="card p-4">
+                <div className="text-2xs font-semibold uppercase tracking-wider text-neutral-500">Recent liquidations</div>
+                {liqs.liquidations.length === 0 ? (
+                  <p className="mt-2 text-2xs text-neutral-500">
+                    {liqs.streaming
+                      ? 'None in the recent window.'
+                      : 'Streaming off — set streaming.enabled: true for a live liquidation feed.'}
+                  </p>
+                ) : (
+                  <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                    {liqs.liquidations.map((l, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 text-2xs">
+                        <span className={l.side === 'buy' ? 'text-success' : 'text-danger'}>
+                          {l.side === 'buy' ? 'short liq' : 'long liq'}
+                        </span>
+                        <span className="num text-neutral-500">{fmtPrice(l.price)}</span>
+                        <span className="num text-neutral-400">${Math.round(l.value).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -328,16 +366,16 @@ export default function SignalDetail({ symbol, tf, plan, onClose }:
                   <div className="text-2xs font-semibold uppercase tracking-wider text-primary">
                     {BLOCK_TITLES[i] ?? `Note ${i + 1}`}
                   </div>
-                  <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-300">{block}</p>
+                  <p className="mt-2 leading-relaxed text-neutral-600 dark:text-neutral-300">{block}</p>
                 </div>
               ))}
             </div>
             {plan.rationale.length > 0 && (
               <details className="card overflow-hidden">
-                <summary className="cursor-pointer bg-surface-2/50 px-4 py-3 text-2xs font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800/40">
+                <summary className="cursor-pointer bg-surface-2/50 px-4 py-3 text-2xs font-semibold uppercase tracking-wider text-neutral-500 dark:bg-neutral-800/40">
                   raw evidence ({plan.rationale.length})
                 </summary>
-                <ul className="num space-y-1 px-4 pb-4 pt-3 text-2xs text-slate-500">
+                <ul className="num space-y-1 px-4 pb-4 pt-3 text-2xs text-neutral-500">
                   {plan.rationale.map((r, i) => <li key={i}>{r}</li>)}
                 </ul>
               </details>
@@ -364,7 +402,7 @@ function ChartLegend() {
     { color: CHART_LIQ, label: 'liquidation' },
   ];
   return (
-    <div className="flex flex-wrap gap-3 px-1 text-2xs text-slate-500">
+    <div className="flex flex-wrap gap-3 px-1 text-2xs text-neutral-500">
       {items.map(item => (
         <span key={item.label} className="inline-flex items-center gap-1.5">
           <span
@@ -382,10 +420,10 @@ function KV({ k, v, tone }: { k: string; v: string; tone?: 'success' | 'danger' 
   const color = tone === 'success' ? 'text-success'
     : tone === 'danger' ? 'text-danger'
     : tone === 'warning' ? 'text-warning'
-    : 'text-slate-900 dark:text-slate-200';
+    : 'text-neutral-900 dark:text-neutral-200';
   return (
     <div className="contents">
-      <span className="text-2xs uppercase tracking-wide text-slate-500">{k}</span>
+      <span className="text-2xs uppercase tracking-wide text-neutral-500">{k}</span>
       <span className={`num text-right ${color}`}>{v}</span>
     </div>
   );

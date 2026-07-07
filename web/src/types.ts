@@ -192,6 +192,21 @@ export interface Derivatives {
   funding_rate?: number | null;
   oi?: number | null;
   oi_change_pct?: number | null;
+  basis_pct?: number | null;
+}
+
+export interface Liquidation {
+  symbol: string;
+  side: string;
+  price: number;
+  value: number;
+  ts: string;
+}
+
+export interface Liquidations {
+  symbol: string;
+  streaming: boolean;
+  liquidations: Liquidation[];
 }
 
 export interface Candle {

@@ -97,6 +97,38 @@ class StreamingFeed:
                     pass
                 backoff = min(backoff * 2, _MAX_BACKOFF)
 
+    async def watch_liquidations(self, symbols: Sequence[str],
+                                 on_liq: Callable[[str, dict], object]) -> None:
+        """Stream liquidation events for `symbols`, calling on_liq(symbol, event)
+        per liquidation until stop(). Each symbol has its own resilient loop."""
+        if not symbols:
+            return
+        await asyncio.gather(*(self._watch_liq_one(s, on_liq) for s in symbols),
+                             return_exceptions=True)
+
+    async def _watch_liq_one(self, symbol: str,
+                             on_liq: Callable[[str, dict], object]) -> None:
+        ex = self._exchange()
+        backoff = 1.0
+        while not self._stop.is_set():
+            try:
+                liqs = await ex.watch_liquidations(symbol)
+                for liq in (liqs or []):
+                    res = on_liq(symbol, liq)
+                    if asyncio.iscoroutine(res):
+                        await res
+                backoff = 1.0
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.debug("watch_liquidations %s failed: %s", symbol, e)
+                try:
+                    await asyncio.wait_for(self._stop.wait(),
+                                           timeout=min(backoff, _MAX_BACKOFF))
+                except asyncio.TimeoutError:
+                    pass
+                backoff = min(backoff * 2, _MAX_BACKOFF)
+
     def latest_price(self, symbol: str) -> Optional[float]:
         return self.prices.get(symbol)
 

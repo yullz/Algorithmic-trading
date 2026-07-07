@@ -76,7 +76,7 @@ export default function HistoryView() {
           {!signals ? <Skeleton rows={4} /> : signals.length === 0 ? <Empty title="No signals match" /> : (
             <div className="table-responsive max-h-96 rounded-lg border border-line">
               <table className="w-full whitespace-nowrap text-sm">
-                <thead className="sticky top-0 z-10 bg-surface-1 dark:bg-slate-900">
+                <thead className="sticky top-0 z-10 bg-surface-1 dark:bg-neutral-900">
                   <tr>
                     <th className="th">symbol</th>
                     <th className="th">side</th>
@@ -91,18 +91,18 @@ export default function HistoryView() {
                 </thead>
                 <tbody>
                   {signals.map(s => (
-                    <tr key={s.id} className="transition-colors hover:bg-surface-2 dark:hover:bg-slate-800/60">
-                      <td className="td font-medium text-slate-900 dark:text-slate-200">{s.symbol.split('/')[0]}</td>
+                    <tr key={s.id} className="transition-colors hover:bg-surface-2 dark:hover:bg-neutral-800/60">
+                      <td className="td font-medium text-neutral-900 dark:text-neutral-200">{s.symbol.split('/')[0]}</td>
                       <td className="td"><SideTag side={s.side as 'LONG' | 'SHORT'} /></td>
-                      <td className="td text-2xs text-slate-500">{s.timeframe}</td>
-                      <td className="td text-2xs text-slate-500">{s.kind}</td>
+                      <td className="td text-2xs text-neutral-500">{s.timeframe}</td>
+                      <td className="td text-2xs text-neutral-500">{s.kind}</td>
                       <td className="td"><RegimeChip regime={s.btc_regime ?? ''} /></td>
                       <td className="td num text-2xs">{fmtPrice(s.entry)}</td>
                       <td className="td num text-2xs">{fmtPrice(s.stop)}</td>
                       <td className={`td num text-2xs font-medium ${(s.expected_value_r ?? 0) >= 0 ? 'text-success' : 'text-danger'}`}>
                         {fmtR(s.expected_value_r)}
                       </td>
-                      <td className="td text-2xs text-slate-500">{timeAgo(s.timestamp)}</td>
+                      <td className="td text-2xs text-neutral-500">{timeAgo(s.timestamp)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -128,7 +128,7 @@ export default function HistoryView() {
           {!trades ? <Skeleton rows={4} /> : trades.length === 0 ? <Empty title="No trades match" /> : (
             <div className="table-responsive max-h-96 rounded-lg border border-line">
               <table className="w-full whitespace-nowrap text-sm">
-                <thead className="sticky top-0 z-10 bg-surface-1 dark:bg-slate-900">
+                <thead className="sticky top-0 z-10 bg-surface-1 dark:bg-neutral-900">
                   <tr>
                     <th className="th">symbol</th>
                     <th className="th">side</th>
@@ -142,19 +142,19 @@ export default function HistoryView() {
                 </thead>
                 <tbody>
                   {trades.map(t => (
-                    <tr key={t.id} className="transition-colors hover:bg-surface-2 dark:hover:bg-slate-800/60">
-                      <td className="td font-medium text-slate-900 dark:text-slate-200">{t.symbol.split('/')[0]}</td>
+                    <tr key={t.id} className="transition-colors hover:bg-surface-2 dark:hover:bg-neutral-800/60">
+                      <td className="td font-medium text-neutral-900 dark:text-neutral-200">{t.symbol.split('/')[0]}</td>
                       <td className="td"><SideTag side={t.side as 'LONG' | 'SHORT'} /></td>
-                      <td className="td text-2xs text-slate-500">{t.status}</td>
-                      <td className="td text-2xs text-slate-500">{t.outcome ?? '—'}</td>
+                      <td className="td text-2xs text-neutral-500">{t.status}</td>
+                      <td className="td text-2xs text-neutral-500">{t.outcome ?? '—'}</td>
                       <td className={`td num text-2xs font-medium ${(t.realized_r ?? 0) >= 0 ? 'text-success' : 'text-danger'}`}>
                         {fmtR(t.realized_r)}
                       </td>
                       <td className={`td num text-2xs ${(t.mtm_pnl ?? 0) >= 0 ? 'text-success' : 'text-danger'}`}>
                         {fmtSigned(t.mtm_pnl ?? 0)}
                       </td>
-                      <td className="td text-2xs text-slate-500">{timeAgo(t.timestamp)}</td>
-                      <td className="td text-2xs text-slate-500">{t.closed_at ? timeAgo(t.closed_at) : '—'}</td>
+                      <td className="td text-2xs text-neutral-500">{timeAgo(t.timestamp)}</td>
+                      <td className="td text-2xs text-neutral-500">{t.closed_at ? timeAgo(t.closed_at) : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -170,14 +170,14 @@ export default function HistoryView() {
 function FilterInput({ placeholder, value, onChange, type = 'text', label }:
   { placeholder?: string; value: string; onChange: (v: string) => void; type?: string; label?: string }) {
   return (
-    <label className="inline-flex items-center gap-1.5 text-2xs text-slate-500">
+    <label className="inline-flex items-center gap-1.5 text-2xs text-neutral-500">
       {label}
       <input
         type={type}
         placeholder={placeholder}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="rounded-md border border-line bg-surface-1 px-2 py-1 text-xs text-slate-700 outline-none focus:border-primary dark:bg-slate-900 dark:text-slate-300"
+        className="rounded-md border border-line bg-surface-1 px-2 py-1 text-xs text-neutral-700 outline-none focus:border-primary dark:bg-neutral-900 dark:text-neutral-300"
       />
     </label>
   );
@@ -189,7 +189,7 @@ function FilterSelect({ value, onChange, children }:
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="rounded-md border border-line bg-surface-1 px-2 py-1 text-xs text-slate-700 outline-none focus:border-primary dark:bg-slate-900 dark:text-slate-300"
+      className="rounded-md border border-line bg-surface-1 px-2 py-1 text-xs text-neutral-700 outline-none focus:border-primary dark:bg-neutral-900 dark:text-neutral-300"
     >
       {children}
     </select>
@@ -208,16 +208,16 @@ function BreakdownCard({ title, rows }: { title: string; rows: HistoryBreakdown[
             const rate = r.trades ? r.wins / r.trades : 0;
             return (
               <div key={label} className="flex items-center gap-3">
-                <span className="w-32 truncate text-2xs text-slate-500" title={label}>{label}</span>
-                <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-surface-2 dark:bg-slate-800">
-                  <div className="absolute inset-y-0 left-1/2 w-px bg-slate-500/40" title="50%" />
+                <span className="w-32 truncate text-2xs text-neutral-500" title={label}>{label}</span>
+                <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-surface-2 dark:bg-neutral-800">
+                  <div className="absolute inset-y-0 left-1/2 w-px bg-neutral-500/40" title="50%" />
                   <div
                     className={`h-full rounded-full ${rate >= 0.5 ? 'bg-success/70' : 'bg-danger/70'}`}
                     style={{ width: `${Math.min(rate * 100, 100)}%` }}
                   />
                 </div>
-                <span className="num w-10 text-right text-2xs text-slate-700 dark:text-slate-300">{fmtPct(rate, 0)}</span>
-                <span className="num w-10 text-right text-2xs text-slate-500">{r.trades}</span>
+                <span className="num w-10 text-right text-2xs text-neutral-700 dark:text-neutral-300">{fmtPct(rate, 0)}</span>
+                <span className="num w-10 text-right text-2xs text-neutral-500">{r.trades}</span>
               </div>
             );
           })}

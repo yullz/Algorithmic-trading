@@ -55,7 +55,7 @@ export default function App() {
   const { dark, toggle } = useTheme();
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface text-slate-700 dark:bg-slate-950 dark:text-slate-300">
+    <div className="flex min-h-screen flex-col bg-surface text-neutral-700 dark:bg-neutral-950 dark:text-neutral-300">
       <StatusBar
         cfg={cfg}
         scan={scan}
@@ -67,7 +67,7 @@ export default function App() {
       />
 
       {/* Top navigation */}
-      <nav className="border-b border-line bg-surface-1/80 backdrop-blur dark:bg-slate-900/80">
+      <nav className="border-b border-line bg-surface-1/80 backdrop-blur dark:bg-neutral-900/80">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2">
           <div className="flex items-center gap-1">
             {TABS.map(t => (
@@ -115,7 +115,7 @@ export default function App() {
 
       <ErrorLog open={errorLogOpen} onClose={() => setErrorLogOpen(false)} />
 
-      <footer className="border-t border-line bg-surface-1 px-4 py-3 text-center text-2xs text-slate-500 dark:bg-slate-900/60">
+      <footer className="border-t border-line bg-surface-1 px-4 py-3 text-center text-2xs text-neutral-500 dark:bg-neutral-900/60">
         Signals are calibrated estimates, not predictions. Leverage can liquidate you.
         Nothing here is financial advice.
       </footer>
