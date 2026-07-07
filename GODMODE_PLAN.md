@@ -24,6 +24,16 @@
   - **Deferred (with better homes):** full cross-asset/BTC wiring through both paths → **Phase 2** (needs
     BTC streaming context); `confidence` reliability plot → **Phase 4**; cluster-adjusted effective-N
     statistics → **Phase 5** (with PBO / deflated-Sharpe robustness package).
+- **🟡 Phase 2 in progress** (`7525b69`, `387808b`).
+  - **P2e** indicator correctness fixes: RSI clean-rally→100 (not neutral 50); regime thresholds driven by
+    stationary `atr_percentile`; TTM squeeze uses tighter 1.5× Keltner.
+  - **P2a** continuous indicator VALUES fed to the ML model (`indicators.numeric_context`): ~23
+    normalized `ind_*` features (distance-to-MA in ATRs, MACD-hist/ATR, BB width, cloud position, bounded
+    oscillators) + the previously-unpopulated percentiles. Dataset 110→135 cols. Tests → 123.
+  - **Remaining Phase 2:** two-head `P(win)`×`E[R]` EV model + rank-by-EV (**P2c**); real derivatives /
+    order-flow / breadth evidence (**P2d**, order-flow parts need Phase 3 streaming); cross-sectional
+    rank/z-score features (**P2b**, needs timestamp-aligned universe layout); pattern hardening (**P2f**:
+    fresh-break gating, high/low pivots, volume confirmation, calibrated confidence).
 
 ---
 
