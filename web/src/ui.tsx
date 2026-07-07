@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Breadth } from './types';
 
 type Tone = 'neutral' | 'accent' | 'primary' | 'secondary' | 'success' | 'danger' | 'warning' | 'long' | 'short' | 'warn';
 
@@ -34,6 +35,24 @@ export function RegimeChip({ regime }: { regime: string }) {
     : regime === 'trend_down' ? 'danger'
     : regime === 'volatile' ? 'warning' : 'neutral';
   return <Chip tone={tone}>{regime.replace(/_/g, ' ') || '—'}</Chip>;
+}
+
+// Universe breadth (risk-on/off): what fraction of the whole market is
+// participating. Risk-on = most symbols above their EMA50/200 (green),
+// risk-off = most below (red). Surfaces the scan-level breadth signal.
+export function BreadthChip({ breadth }: { breadth?: Breadth | null }) {
+  if (!breadth || breadth.n === 0) return <Chip title="universe breadth">—</Chip>;
+  const tone: Tone = breadth.risk_state === 'risk_on' ? 'success'
+    : breadth.risk_state === 'risk_off' ? 'danger' : 'neutral';
+  const pct = breadth.pct_above_ema50 != null
+    ? Math.round(breadth.pct_above_ema50 * 100) : null;
+  return (
+    <Chip tone={tone}
+      title={`universe breadth: ${breadth.n} symbols · ${pct ?? '—'}% > EMA50 · `
+        + `A/D ${breadth.ad_ratio ?? '—'}`}>
+      {breadth.risk_state.replace(/_/g, '-')}{pct != null ? ` · ${pct}%` : ''}
+    </Chip>
+  );
 }
 
 export function ConfBar({ value }: { value: number }) {

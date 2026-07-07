@@ -43,6 +43,16 @@ export interface MarketTile {
   picked: boolean;
 }
 
+export interface Breadth {
+  n: number;
+  pct_above_ema50: number | null;
+  pct_above_ema200: number | null;
+  advancers: number;
+  decliners: number;
+  ad_ratio: number | null;
+  risk_state: 'risk_on' | 'neutral' | 'risk_off';
+}
+
 export interface ScanResult {
   plans: Plan[];
   market: MarketTile[];
@@ -52,6 +62,7 @@ export interface ScanResult {
   fetch_errors: number;
   candidates: number;
   btc_regime: string;
+  breadth?: Breadth | null;
   scanned_at: string | null;
   duration_sec: number;
 }

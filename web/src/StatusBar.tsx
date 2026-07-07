@@ -1,6 +1,6 @@
 import { useTick } from './api';
 import { fmtMoney, fmtPct, secondsSince, timeAgo } from './format';
-import { Chip, Dot, RegimeChip } from './ui';
+import { BreadthChip, Chip, Dot, RegimeChip } from './ui';
 import type { Config, Health, Positions, ScanResult } from './types';
 
 export default function StatusBar({ cfg, scan, positions, connected, health, errorCount, onToggleErrors }:
@@ -41,6 +41,11 @@ export default function StatusBar({ cfg, scan, positions, connected, health, err
         <div className="flex items-center gap-1.5">
           <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">BTC</span>
           <RegimeChip regime={scan?.btc_regime ?? ''} />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Breadth</span>
+          <BreadthChip breadth={scan?.breadth} />
         </div>
 
         <Chip tone={modeTone === 'success' ? 'success' : modeTone === 'warning' ? 'warning' : 'danger'}>{mode}</Chip>
