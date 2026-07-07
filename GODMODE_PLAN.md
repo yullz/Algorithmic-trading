@@ -76,9 +76,14 @@
     VWAP, Bollinger series; chart draws the EMA ribbon + dashed VWAP + Bollinger band. Verified live.
   - **P4-4** (`227913a`): **RSI oscillator sub-pane** with 30/70 guides below the price panel (+ macd_hist
     exposed). Verified live — the chart is now price+overlays / RSI / volume.
-  - **Remaining Phase 4:** replace the fabricated ScannerView sparklines with real close-series; surface
-    ml_ev_r (reward head) + breadth panel; Analytics cockpit (calibration-reliability plot, ML
-    feature-importance); pattern-geometry overlays on the chart; microstructure panels; broader polish.
+  - **P4-5 dashboard polish** (`0e5f5ee`, all verified live): real ScannerView sparklines (24h close series
+    per tile — fixed the fabricated-data audit issue); reward-head **E[R]** plumbed to TradePlan/API + shown
+    in the detail panel; **calibration-reliability plot** (`/api/analytics/reliability` + SVG diagram, verified
+    59%→71%); **ML feature-importance** bars (`/api/mlmodel` top_features); **chart pattern markers**
+    (`/api/candles` patterns → bias-colored labeled markers, verified on CBRS trendline_break_up). E[R] +
+    feature-importance render once a trusted reward-head model is trained (graceful with the current one).
+  - **Remaining Phase 4:** microstructure panels (funding/OI/basis/liquidations — need live data); broader
+    visual polish; per-symbol/timeframe controls in the drawer.
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
