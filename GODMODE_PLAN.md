@@ -109,10 +109,32 @@
     MC-DD p95 / final equity + equity sparkline). Verified in the matte theme (present:true, dsr 0.9991,
     pbo 0, bootstrap 0.67R [0.40, 0.91] · 100% positive; account CAGR/DD render). Note: the offline CAGR is a
     synthetic-data artifact (clean edge over a tiny span), not a bug — the math is honest.
-  - **Remaining Phase 5 (need a trained reward-head model + more history to do honestly):** nested
-    walk-forward + FDR for `tune_thresholds.py`/`analyze_factors.py` (today they grid-search the full
-    in-sample set — data-snooping); parameter-stability heatmaps; backtest realism (next-bar-open entry,
-    gap-through-stop slippage, funding accrual, point-in-time survivorship-free universe).
+  - **P5-realism DONE** (`f5998f4`): `_simulate` now models **next-bar-open entry**, **gap-through-stop
+    fills**, and **funding accrual** (RiskConfig-gated, defaults on; funding rate 0 → no directional bias).
+    Legacy behavior reproduced bit-for-bit when off. 6 exact-R tests.
+  - **P5-PIT DONE** (`52e57c2`): `--min-history-frac` survivorship guard + per-pair first-candle coverage +
+    a `survivorship` disclosure block (delisted names can't be recovered offline — disclosed, not faked).
+  - **P5-FDR DONE** (`9c53860`): `algotrader/backtest/selection.py` — nested walk-forward threshold tuning
+    (choose on train folds, score on held-out test) + binomial p-values vs the dataset **base rate** +
+    **Benjamini-Hochberg FDR**. `tune_thresholds.py`/`analyze_factors.py` rewritten (kills full-in-sample
+    data-snooping); fixed a latent `float('inf')` profit_factor. 8 tests.
+  - **P5-param-stability DONE** (`4b39401`): `robustness.parameter_stability` + a matte **heatmap** in
+    Analytics (confidence/n_families gate × time-period mean-R). Verified live. 3 tests.
+  - **P5-reward-head decoupling DONE** (`bed1e1f`): `MetaModel.load`/`predict_for_signal` now surface a
+    trusted **E[R]** head even when the P(win) head's blend weight is 0. 3 tests.
+  - **⚠️ HONEST EDGE FINDING (2026-07-08):** a **deep online backtest (25 syms × 3 TFs × 5000 candles →
+    10,108 real trades)** with the new realistic fills shows **mean −0.071R, 49.7% win rate**. The retrained
+    two-head model is **UNTRUSTED**: OOS AUC **0.479** (<0.5), reward Spearman **0.037** (<0.05). *There is
+    no measurable edge and the model cannot rank winners.* Phase 5's whole purpose — surfacing this honestly.
+- **🟢 Live Bybit futures wiring (2026-07-08, `da45c5f`):** fixed **15-USDT-margin** sizing
+  (`RiskConfig.fixed_margin_usdt`, notional = margin×lev), a **free-USDT preflight** (`BybitExecutor
+  .free_usdt`, refuse if free < margin), one-way position mode, and **live position management wired into the
+  server loop** (breakeven-after-TP1, time-stop, dashboard, `/close`) — previously only the paper executor was
+  managed. A default-on **edge safety catch** (`RiskConfig.require_validated_edge` + `base.validated_edge`
+  reading walk-forward OOS) **blocks live entries while the OOS edge is negative** (it is). Owner chose
+  mainnet + 15-USDT margin + keep caps; NOTHING auto-enables mainnet — see `LIVE_TRADING.md` runbook. Paper
+  path byte-identical (guarded). Tests → 185. **The path to live profit is a better edge that clears the
+  walk-forward, not more wiring.**
 
 **Remote:** live at github.com/yullz/Algorithmic-trading (public); pushed after every commit.
 
