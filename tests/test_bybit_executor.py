@@ -117,6 +117,17 @@ def test_free_usdt_missing_key_falls_back_to_total(tmp_path):
     assert exe.free_usdt() == 50.0
 
 
+def test_free_usdt_uses_unified_available_balance(tmp_path):
+    # Unified account: per-coin USDT.free reads ~0 while margin is deployed, but
+    # totalAvailableBalance is the real openable amount -> must use the latter.
+    exe, ex = _mk_exec(tmp_path, free=0.24, total=119.8)
+    ex.fetch_balance.return_value = {
+        "USDT": {"free": 0.24, "total": 119.8},
+        "info": {"result": {"list": [
+            {"accountType": "UNIFIED", "totalAvailableBalance": "33.40"}]}}}
+    assert exe.free_usdt() == pytest.approx(33.40)
+
+
 def test_zero_free_blocks_open(tmp_path):
     exe, ex = _mk_exec(tmp_path, free=0.0, total=1000.0, positions=[])
     assert exe.open_position(_plan(15.0)) is None

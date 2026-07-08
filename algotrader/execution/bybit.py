@@ -156,6 +156,15 @@ class BybitExecutor(Executor):
         absent (None)."""
         try:
             bal = self.ex.fetch_balance()
+            # Unified Trading Account (Bybit's default): margin is POOLED across
+            # the account, so the amount available to open a new position is the
+            # account-level `totalAvailableBalance`, NOT the per-coin USDT 'free'
+            # (which reads ~0 once other positions consume margin). Prefer it.
+            for acct in (((bal.get("info") or {}).get("result") or {}).get("list") or []):
+                if acct.get("accountType") == "UNIFIED":
+                    tab = acct.get("totalAvailableBalance")
+                    if tab not in (None, ""):
+                        return float(tab)
             usdt = bal.get("USDT", {})
             free = usdt.get("free")
             return float(free if free is not None else (usdt.get("total") or 0.0))
