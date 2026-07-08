@@ -122,32 +122,48 @@ class RiskManager:
             regime_mult = cfg.volatile_regime_size_factor
             sizing_note += f", volatile regime factor={regime_mult:.2f}"
 
-        # ---- position sizing (risk to the stop)
-        risk_amount = equity * effective_risk_pct
-        qty = (risk_amount / stop_dist) * regime_mult
-        # True dollar risk is qty * stop_dist AFTER every size scaling (the
-        # regime haircut here, the margin-cap shrink below). Recompute it so
-        # risk_amount does not overstate risk by 1/regime_mult in volatile
-        # regimes — that stale value would corrupt fees_r, EV, the reported
-        # risk, and the realized-R that feeds calibration and Kelly sizing.
-        risk_amount = qty * stop_dist
-        notional = qty * entry
-        margin = notional / lev
-
-        # ---- margin allocation cap (may raise leverage or shrink size)
-        cap = equity * cfg.max_margin_alloc_pct
-        if margin > cap:
-            needed_lev = notional / cap
-            lev = min(max(needed_lev, lev), cfg.max_leverage, max(1.0, safe_lev))
+        # ---- position sizing --------------------------------------------------
+        fixed_margin = float(getattr(cfg, "fixed_margin_usdt", 0.0) or 0.0)
+        if fixed_margin > 0:
+            # Fixed-margin mode: commit exactly `fixed_margin` USDT of margin, so
+            # notional = margin * leverage. This is the live "open each position
+            # with N USDT" policy. The %-risk and margin-cap paths are bypassed;
+            # the leverage clamp + stop-before-liquidation checks above/below
+            # still apply, and risk_amount is the honest qty*stop_dist so fees_r,
+            # EV, and realized-R stay consistent.
+            margin = fixed_margin
+            notional = margin * lev
+            qty = notional / entry
+            risk_amount = qty * stop_dist
+            sizing_note = (f"fixed margin {margin:.4g} USDT @ {lev:.0f}x "
+                           f"-> {notional:.4g} notional")
+        else:
+            # ---- risk-% sizing (fraction of equity risked to the stop)
+            risk_amount = equity * effective_risk_pct
+            qty = (risk_amount / stop_dist) * regime_mult
+            # True dollar risk is qty * stop_dist AFTER every size scaling (the
+            # regime haircut here, the margin-cap shrink below). Recompute it so
+            # risk_amount does not overstate risk by 1/regime_mult in volatile
+            # regimes — that stale value would corrupt fees_r, EV, the reported
+            # risk, and the realized-R that feeds calibration and Kelly sizing.
+            risk_amount = qty * stop_dist
+            notional = qty * entry
             margin = notional / lev
-            if margin > cap:  # still too big -> shrink position (risk drops below target)
-                notional = cap * lev
-                qty = notional / entry
-                risk_amount = qty * stop_dist
-                margin = cap
-                warnings.append(
-                    f"position shrunk to respect {cfg.max_margin_alloc_pct:.0%} "
-                    f"margin cap; actual risk now {risk_amount/equity:.2%} of equity")
+
+            # ---- margin allocation cap (may raise leverage or shrink size)
+            cap = equity * cfg.max_margin_alloc_pct
+            if margin > cap:
+                needed_lev = notional / cap
+                lev = min(max(needed_lev, lev), cfg.max_leverage, max(1.0, safe_lev))
+                margin = notional / lev
+                if margin > cap:  # still too big -> shrink position (risk drops below target)
+                    notional = cap * lev
+                    qty = notional / entry
+                    risk_amount = qty * stop_dist
+                    margin = cap
+                    warnings.append(
+                        f"position shrunk to respect {cfg.max_margin_alloc_pct:.0%} "
+                        f"margin cap; actual risk now {risk_amount/equity:.2%} of equity")
 
         lev = max(1.0, lev)  # final guard: leverage must be >= 1
         liq = self.liquidation_price(side, entry, lev)

@@ -139,6 +139,19 @@ class RiskConfig:
     adaptive_sizing_mode: str = "none"              # none | volatility_target | kelly
     volatility_target_atr_percentile: float = 50.0  # median ATR used as neutral
     kelly_fraction: float = 0.25                    # quarter-Kelly cap
+    # ---- fixed-margin sizing (live "open each position with N USDT") ----
+    # 0 = disabled (use the %-risk sizing above). When > 0, every trade commits
+    # exactly this many USDT of MARGIN, so notional = fixed_margin_usdt * leverage.
+    # The %-risk and margin-allocation-cap paths are bypassed; the leverage and
+    # stop-before-liquidation safety checks still apply.
+    fixed_margin_usdt: float = 0.0
+    # ---- live edge safety catch ----
+    # Refuse LIVE entries unless a positive OUT-OF-SAMPLE edge is on record (the
+    # walk-forward OOS result). Default ON so real capital is never deployed
+    # against an unvalidated or negative edge. Paper trading is never gated by
+    # this. Set false ONLY to deliberately override (you accept there is no
+    # validated edge). Does not affect testnet vs mainnet — it gates BOTH.
+    require_validated_edge: bool = True
     # ---- time stop ----
     max_trade_duration_candles: int = 0             # 0 = disabled
     # ---- regime-dependent sizing ----

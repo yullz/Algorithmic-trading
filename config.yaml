@@ -49,6 +49,19 @@ risk:
   # ---- circuit breakers ----
   max_daily_loss_pct: 0.03      # halt new entries after a -3% day
   max_consecutive_losses: 5
+  # ---- fixed-margin sizing ("open each position with N USDT") ----
+  # 0 = size by risk_per_trade_pct above. > 0 = commit exactly this many USDT of
+  # MARGIN per trade (notional = fixed_margin_usdt * leverage). A new trade opens
+  # whenever this much FREE USDT is available AND the portfolio caps above allow
+  # it (one-per-symbol, max_concurrent_positions, correlation, total risk).
+  fixed_margin_usdt: 15.0
+  # ---- live edge safety catch ----
+  # Refuse LIVE entries unless a positive out-of-sample edge is on record (the
+  # walk-forward OOS result in reports/walkforward.json). true = never deploy
+  # real capital against an unvalidated / negative edge. Paper is never gated by
+  # this. Set false ONLY to override deliberately. As of the last deep backtest
+  # the OOS edge is NEGATIVE, so with this true, live entries are blocked.
+  require_validated_edge: true
   # ---- adaptive sizing ----
   adaptive_sizing_mode: none              # none | volatility_target | kelly
   volatility_target_atr_percentile: 50    # median ATR used as neutral anchor

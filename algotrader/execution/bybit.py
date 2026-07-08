@@ -28,7 +28,7 @@ from ..reporting import read_json, write_json
 from ..risk.manager import RiskManager
 from ..utils.logging import audit, get_logger, utcnow_iso
 from .base import (CircuitBreakers, Executor, PositionState, portfolio_allows,
-                   timeframe_to_seconds)
+                   timeframe_to_seconds, validated_edge)
 
 log = get_logger("live")
 
@@ -62,6 +62,13 @@ class BybitExecutor(Executor):
         if testnet:
             self.ex.set_sandbox_mode(True)
         self.ex.load_markets()
+        # Best-effort one-way position mode — the breakeven-stop update posts
+        # positionIdx 0, which requires one-way (non-hedged) mode. Non-fatal:
+        # the account may already be one-way or the call may be unsupported.
+        try:
+            self.ex.set_position_mode(False)
+        except Exception as e:  # pragma: no cover - exchange/account dependent
+            log.debug("set_position_mode(one-way): %s", e)
         log.warning("LIVE executor initialized on %s",
                     "TESTNET" if testnet else "*** MAINNET ***")
 
@@ -137,6 +144,18 @@ class BybitExecutor(Executor):
             log.error("fetch_balance failed: %s", e)
             return 0.0
 
+    def free_usdt(self) -> float:
+        """Spendable (FREE) USDT margin — gates whether a new position can be
+        funded. Distinct from equity() (total wallet value): a new trade must be
+        affordable out of free margin, not just backed by total equity."""
+        try:
+            bal = self.ex.fetch_balance()
+            usdt = bal.get("USDT", {})
+            return float(usdt.get("free") or usdt.get("total") or 0.0)
+        except Exception as e:
+            log.error("fetch_balance (free) failed: %s", e)
+            return 0.0
+
     def open_positions(self) -> list[PositionState]:
         out: list[PositionState] = []
         try:
@@ -207,9 +226,36 @@ class BybitExecutor(Executor):
             log.warning("LIVE entry blocked: %s", why)
             audit("live_entry_blocked", {"symbol": plan.symbol, "reason": why})
             return None
+
+        # ---- edge safety catch: never deploy real capital against an
+        # unvalidated / negative out-of-sample edge (default ON, live-only).
+        if getattr(self.cfg, "require_validated_edge", True):
+            ok_edge, edge_why = validated_edge(self.breakers.root)
+            if not ok_edge:
+                log.warning("LIVE entry blocked by edge safety catch: %s. Set "
+                            "risk.require_validated_edge: false in config.yaml to "
+                            "override deliberately.", edge_why)
+                audit("live_entry_blocked", {"symbol": plan.symbol,
+                                             "reason": f"edge catch: {edge_why}"})
+                return None
+
         ok, why = portfolio_allows(self.cfg, self.open_positions(), plan, equity)
         if not ok:
             log.info("LIVE entry skipped: %s", why)
+            return None
+
+        # ---- free-margin preflight: only open if enough FREE USDT is available
+        # to fund this position's margin ("check for N USDT availability before
+        # opening"). Uses free balance, not total equity.
+        required_margin = float(plan.margin)
+        free = self.free_usdt()
+        if free < required_margin:
+            log.info("LIVE entry skipped: free balance %.2f USDT < required margin "
+                     "%.2f USDT for %s", free, required_margin, plan.symbol)
+            audit("live_entry_skipped", {"symbol": plan.symbol,
+                                         "reason": "insufficient free margin",
+                                         "free": round(free, 2),
+                                         "required": round(required_margin, 2)})
             return None
 
         symbol = plan.symbol

@@ -224,6 +224,44 @@ def _record_closed_positions() -> None:
         )
 
 
+def _manage_live(live_exec) -> list:
+    """Drive LIVE position management each loop. The exchange executes the entry
+    SL and the reduce-only TP ladder on its own, but it does NOT move the stop to
+    breakeven after TP1 or honor the time-stop — so those must be driven here.
+    open_positions() syncs from the exchange and auto-closes time-expired
+    positions; sync_take_profits() performs the breakeven move. Returns the
+    current open live positions (for the dashboard broadcast)."""
+    try:
+        positions = live_exec.open_positions()   # also enforces the time-stop
+    except Exception as e:
+        log.error("live open_positions failed: %s", e)
+        return []
+    for pos in positions:
+        try:
+            live_exec.sync_take_profits(pos.symbol)
+        except Exception as e:
+            log.warning("live TP/breakeven sync failed for %s: %s", pos.symbol, e)
+    return positions
+
+
+def _live_state_dict(live_exec, positions: list) -> dict:
+    """Dashboard snapshot of the LIVE account, matching PaperExecutor.state_dict()
+    so the UI renders live and paper identically. Positions are synced from the
+    exchange; closed-trade history/equity-curve are not reconstructed live (the
+    audit log is the live ledger)."""
+    eq = live_exec.equity()
+    return {
+        "equity": eq, "mtm_equity": eq, "return_pct": 0.0,
+        "open_positions": [p.to_dict() for p in positions],
+        "closed_trades": [],
+        "equity_curve": [],
+        "consecutive_losses": getattr(live_exec, "consecutive_losses", 0),
+        "day_anchor": getattr(live_exec, "day_anchor", {"date": "", "equity": eq}),
+        "updated_at": utcnow_iso(),
+        "mode": "live",
+    }
+
+
 async def scan_loop() -> None:
     global last_scan, scanner
     from algotrader.data.feed import AsyncDataFeed
@@ -264,27 +302,30 @@ async def scan_loop() -> None:
                 # All executor mutations run under the lock so a concurrent
                 # /close or pause/resume cannot interleave with the scan loop's
                 # position advance / open / save sequence.
+                live = live_executor is not None
+                live_positions: list | None = None
                 async with _exec_lock:
-                    # advance open positions on their newest CLOSED candle
-                    for pos in list(executor.open_positions()):
-                        try:
-                            df = await feed.fetch_ohlcv(pos.symbol, pos.timeframe, 3)
-                        except Exception:
-                            continue
-                        if df is None or len(df) < 2:
-                            continue
-                        bar, ts = df.iloc[-2], str(df.index[-2])
-                        if _seen_candle.get(pos.id) == ts:
-                            continue
-                        _seen_candle[pos.id] = ts
-                        executor.update_with_candle(
-                            pos.symbol, ts, float(bar["open"]), float(bar["high"]),
-                            float(bar["low"]), float(bar["close"]))
+                    if not live:
+                        # PAPER: advance open positions on their newest CLOSED candle
+                        for pos in list(executor.open_positions()):
+                            try:
+                                df = await feed.fetch_ohlcv(pos.symbol, pos.timeframe, 3)
+                            except Exception:
+                                continue
+                            if df is None or len(df) < 2:
+                                continue
+                            bar, ts = df.iloc[-2], str(df.index[-2])
+                            if _seen_candle.get(pos.id) == ts:
+                                continue
+                            _seen_candle[pos.id] = ts
+                            executor.update_with_candle(
+                                pos.symbol, ts, float(bar["open"]), float(bar["high"]),
+                                float(bar["low"]), float(bar["close"]))
 
-                    # journal any closes that happened during this candle step
-                    _record_closed_positions()
+                        # journal any closes that happened during this candle step
+                        _record_closed_positions()
 
-                    # ---- open new plans -------------------------------------
+                    # ---- open new plans (paper or live) ---------------------
                     for plan in plans:
                         pos_id = trade_exec.open_position(plan)
                         if pos_id and pos_id not in _logged_positions:
@@ -308,16 +349,28 @@ async def scan_loop() -> None:
                             _risk_amount_by_trade[trade_id] = float(plan.risk_amount)
                             _fees_estimate_by_trade[trade_id] = float(plan.fees_estimate)
 
-                    # journal closes triggered by open_position rejections (e.g.
-                    # circuit breakers closing positions) or ladder finalization.
-                    _record_closed_positions()
+                    if not live:
+                        # journal closes triggered by open_position rejections (e.g.
+                        # circuit breakers closing positions) or ladder finalization.
+                        _record_closed_positions()
+                        executor.save()
+                        _save_trade_links()  # durable pos_id -> trade_id linkage
+                    else:
+                        # LIVE: manage what we opened — the breakeven-after-TP1 move
+                        # and the time-stop the exchange does not enforce on its own.
+                        live_positions = _manage_live(live_executor)
 
-                    executor.save()
-                    _save_trade_links()  # durable pos_id -> trade_id linkage
-                await broadcast("positions", executor.state_dict())
-                exposure_corr = await _correlation_matrix_for(executor.open_positions())
-                await broadcast("exposure", ExposureAnalyzer.analyze(
-                    executor.open_positions(), correlation_matrix=exposure_corr))
+                if live:
+                    await broadcast("positions",
+                                    _live_state_dict(live_executor, live_positions or []))
+                    exposure_corr = await _correlation_matrix_for(live_positions or [])
+                    await broadcast("exposure", ExposureAnalyzer.analyze(
+                        live_positions or [], correlation_matrix=exposure_corr))
+                else:
+                    await broadcast("positions", executor.state_dict())
+                    exposure_corr = await _correlation_matrix_for(executor.open_positions())
+                    await broadcast("exposure", ExposureAnalyzer.analyze(
+                        executor.open_positions(), correlation_matrix=exposure_corr))
             except Exception as e:
                 log.error("scan loop error: %s", e)
                 await broadcast("error", {"message": str(e)})
@@ -679,13 +732,17 @@ async def api_control_resume():
 @app.post("/api/positions/{symbol:path}/close")
 async def api_close_position(symbol: str):
     async with _exec_lock:
-        pos = next((p for p in executor.open_positions() if p.symbol == symbol), None)
+        # Close on the LIVE executor when attached, else the paper one — otherwise
+        # a live position could never be closed from the dashboard.
+        exe = live_executor or executor
+        pos = next((p for p in exe.open_positions() if p.symbol == symbol), None)
         if pos is None:
             return JSONResponse({"error": f"no open position for {symbol}"},
                                 status_code=404)
-        price = pos.last_price if pos.last_price else pos.entry
-        executor.close_position(pos.id, float(price), "api_close")
-        executor.save()
+        price = getattr(pos, "last_price", 0.0) or pos.entry
+        exe.close_position(pos.id, float(price), "api_close")
+        if live_executor is None:
+            executor.save()
     return {"status": "closed", "symbol": symbol, "price": price}
 
 

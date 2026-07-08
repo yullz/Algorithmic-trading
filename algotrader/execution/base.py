@@ -99,6 +99,29 @@ class CircuitBreakers:
         return (now - last_candle_ts).total_seconds() > 2 * timeframe_sec
 
 
+def validated_edge(root: str = ".") -> tuple[bool, str]:
+    """Is a positive OUT-OF-SAMPLE edge on record? Live entries gate on this by
+    default (RiskConfig.require_validated_edge). The walk-forward OOS result is
+    the codebase's honest edge test — in-sample numbers are optimistically
+    biased and must not authorize real capital.
+
+    Returns (validated, reason). Validated requires expectancy_r > 0 AND
+    profit_factor > 1 in reports/walkforward.json.
+    """
+    from ..reporting import read_json
+    wf = read_json(os.path.join(root, "reports", "walkforward.json"))
+    if not wf:
+        return False, ("no walk-forward report on record — run "
+                       "'python backtest.py --deep --walkforward' first")
+    oos = wf.get("out_of_sample") or {}
+    exp = float(oos.get("expectancy_r", 0.0) or 0.0)
+    pf = float(oos.get("profit_factor", 0.0) or 0.0)
+    if exp > 0.0 and pf > 1.0:
+        return True, f"OOS edge holds (expectancy {exp:.3f}R, profit factor {pf:.2f})"
+    return False, (f"out-of-sample edge is NOT positive (expectancy {exp:.3f}R, "
+                   f"profit factor {pf:.2f}) — no validated edge to trade")
+
+
 def portfolio_allows(cfg: RiskConfig, open_positions: list[PositionState],
                      plan: TradePlan, equity: float) -> tuple[bool, str]:
     """Portfolio-level caps shared by paper and live executors."""
