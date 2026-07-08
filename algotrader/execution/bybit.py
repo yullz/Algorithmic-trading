@@ -147,11 +147,18 @@ class BybitExecutor(Executor):
     def free_usdt(self) -> float:
         """Spendable (FREE) USDT margin — gates whether a new position can be
         funded. Distinct from equity() (total wallet value): a new trade must be
-        affordable out of free margin, not just backed by total equity."""
+        affordable out of free margin, not just backed by total equity.
+
+        A genuine free==0.0 (margin fully deployed) must be treated as 0.0, NOT
+        backfilled from total — `free or total` would report total when free is a
+        legitimate zero (0.0 is falsy) and silently defeat the preflight at the
+        exact boundary it exists to guard. Only fall back to total if 'free' is
+        absent (None)."""
         try:
             bal = self.ex.fetch_balance()
             usdt = bal.get("USDT", {})
-            return float(usdt.get("free") or usdt.get("total") or 0.0)
+            free = usdt.get("free")
+            return float(free if free is not None else (usdt.get("total") or 0.0))
         except Exception as e:
             log.error("fetch_balance (free) failed: %s", e)
             return 0.0
@@ -426,3 +433,31 @@ class BybitExecutor(Executor):
         """Feed the losing-streak breaker (called by the runner on fills)."""
         self.consecutive_losses = 0 if win else self.consecutive_losses + 1
         self._save_state()
+
+    def _closed_pnl_win(self, symbol: str) -> Optional[bool]:
+        """Win/loss of a just-closed position from Bybit's closed-PnL ledger.
+        Returns None when it cannot be determined (the streak breaker is then
+        left unchanged rather than guessed)."""
+        try:
+            raw = symbol.replace("/", "").replace(":USDT", "")
+            resp = self.ex.private_get_v5_position_closed_pnl(
+                {"category": "linear", "symbol": raw, "limit": 1})
+            rows = ((resp or {}).get("result") or {}).get("list") or []
+            if not rows:
+                return None
+            return float(rows[0].get("closedPnl", 0.0)) > 0.0
+        except Exception as e:
+            log.warning("could not determine closed PnL for %s (%s) — losing-streak "
+                        "breaker not advanced", symbol, e)
+            return None
+
+    def reconcile_closed(self, prev_symbols, open_symbols) -> None:
+        """Detect positions that closed since the last loop (exchange SL/TP, the
+        time-stop, or a manual close) and feed the losing-streak breaker with
+        each one's realized win/loss — the guard is otherwise inert live because
+        the exchange closes positions without a local callback."""
+        for symbol in set(prev_symbols) - set(open_symbols):
+            win = self._closed_pnl_win(symbol)
+            if win is not None:
+                self.record_trade_result(win)
+            self._tracked.pop(symbol, None)

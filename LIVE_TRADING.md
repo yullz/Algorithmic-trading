@@ -138,9 +138,11 @@ Delete the file to resume. Existing positions keep their exchange-side SL/TP.
 - Live **closed-trade journaling** and the equity curve are not reconstructed in
   the dashboard; the **audit log** (`audit(...)`) is the live ledger. Open live
   positions do show on the dashboard.
-- The **losing-streak breaker** increments from the app's own closes; exchange-side
-  SL fills are not yet fed back into it. The **daily-loss breaker** (equity-based)
-  and exchange SL remain the primary protections.
+- The **losing-streak breaker** is fed live by `reconcile_closed`, which reads
+  Bybit's closed-PnL ledger each loop to score positions that closed on the
+  exchange (SL/TP), via the time-stop, or manually. If the closed-PnL query fails
+  the streak is left unchanged (not guessed); the **daily-loss breaker**
+  (equity-based) and exchange SL remain independent protections.
 - Margin mode (isolated/cross) is left at the account default — set it on Bybit.
 - Historical **funding is not modeled** in the backtest (a constant assumption,
   default 0), so funding P&L live is not pre-estimated.

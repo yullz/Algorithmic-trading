@@ -101,3 +101,68 @@ def test_edge_gate_passes_on_positive_oos(tmp_path):
     _stale_ohlcv(ex)
     assert exe.open_position(_plan(15.0)) is None  # stale -> fail safe
     ex.fetch_ohlcv.assert_called()               # but it cleared the edge gate + preflight
+
+
+# --------------------------------------------------------------------------- #
+# free==0.0 must not be backfilled from total (review fix)
+# --------------------------------------------------------------------------- #
+def test_free_usdt_genuine_zero_is_not_backfilled(tmp_path):
+    exe, _ = _mk_exec(tmp_path, free=0.0, total=100.0)   # margin fully deployed
+    assert exe.free_usdt() == 0.0                        # NOT 100.0
+
+
+def test_free_usdt_missing_key_falls_back_to_total(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=0.0, total=50.0)
+    ex.fetch_balance.return_value = {"USDT": {"total": 50.0}}  # no 'free' key
+    assert exe.free_usdt() == 50.0
+
+
+def test_zero_free_blocks_open(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=0.0, total=1000.0, positions=[])
+    assert exe.open_position(_plan(15.0)) is None
+    ex.create_order.assert_not_called()          # genuine 0 free -> blocked
+
+
+# --------------------------------------------------------------------------- #
+# live losing-streak breaker: reconcile_closed feeds it (review fix)
+# --------------------------------------------------------------------------- #
+def _closed_pnl(ex, pnl):
+    ex.private_get_v5_position_closed_pnl.return_value = {
+        "result": {"list": [{"closedPnl": str(pnl)}]}}
+
+
+def test_reconcile_closed_advances_losing_streak(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe._tracked = {"BTC/USDT:USDT": {}}
+    _closed_pnl(ex, -5.0)                          # the position closed at a loss
+    exe.reconcile_closed({"BTC/USDT:USDT"}, set())
+    assert exe.consecutive_losses == 1
+    assert "BTC/USDT:USDT" not in exe._tracked
+
+
+def test_reconcile_closed_resets_streak_on_win(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe.consecutive_losses = 3
+    exe._tracked = {"ETH/USDT:USDT": {}}
+    _closed_pnl(ex, 12.0)                          # closed at a profit
+    exe.reconcile_closed({"ETH/USDT:USDT"}, set())
+    assert exe.consecutive_losses == 0
+
+
+def test_reconcile_closed_keeps_streak_when_pnl_unknown(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe.consecutive_losses = 2
+    exe._tracked = {"SOL/USDT:USDT": {}}
+    ex.private_get_v5_position_closed_pnl.side_effect = Exception("api down")
+    exe.reconcile_closed({"SOL/USDT:USDT"}, set())
+    assert exe.consecutive_losses == 2            # not guessed
+    assert "SOL/USDT:USDT" not in exe._tracked    # still untracked
+
+
+def test_reconcile_closed_ignores_still_open(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe._tracked = {"BTC/USDT:USDT": {}}
+    exe.reconcile_closed({"BTC/USDT:USDT"}, {"BTC/USDT:USDT"})  # still open
+    assert exe.consecutive_losses == 0
+    ex.private_get_v5_position_closed_pnl.assert_not_called()
+    assert "BTC/USDT:USDT" in exe._tracked

@@ -229,13 +229,22 @@ def _manage_live(live_exec) -> list:
     SL and the reduce-only TP ladder on its own, but it does NOT move the stop to
     breakeven after TP1 or honor the time-stop — so those must be driven here.
     open_positions() syncs from the exchange and auto-closes time-expired
-    positions; sync_take_profits() performs the breakeven move. Returns the
-    current open live positions (for the dashboard broadcast)."""
+    positions; sync_take_profits() performs the breakeven move; reconcile_closed
+    feeds the losing-streak breaker with the win/loss of anything that closed.
+    Returns the current open live positions (for the dashboard broadcast)."""
+    # Snapshot tracked symbols BEFORE open_positions() (which may close+untrack
+    # time-expired positions) so close reconciliation still sees them.
+    prev = set(getattr(live_exec, "_tracked", {}).keys())
     try:
         positions = live_exec.open_positions()   # also enforces the time-stop
     except Exception as e:
         log.error("live open_positions failed: %s", e)
         return []
+    open_symbols = {p.symbol for p in positions}
+    try:
+        live_exec.reconcile_closed(prev, open_symbols)   # advance streak breaker
+    except Exception as e:
+        log.warning("live close reconciliation failed: %s", e)
     for pos in positions:
         try:
             live_exec.sync_take_profits(pos.symbol)
