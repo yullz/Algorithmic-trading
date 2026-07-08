@@ -56,12 +56,12 @@ risk:
   # it (one-per-symbol, max_concurrent_positions, correlation, total risk).
   fixed_margin_usdt: 15.0
   # ---- live edge safety catch ----
-  # Refuse LIVE entries unless a positive out-of-sample edge is on record (the
-  # walk-forward OOS result in reports/walkforward.json). true = never deploy
-  # real capital against an unvalidated / negative edge. Paper is never gated by
-  # this. Set false ONLY to override deliberately. As of the last deep backtest
-  # the OOS edge is NEGATIVE, so with this true, live entries are blocked.
-  require_validated_edge: true
+  # Refuse LIVE entries unless a positive out-of-sample edge is on record.
+  # OWNER OVERRIDE (2026-07-08, risk explicitly accepted): set to false so live
+  # entries are ALLOWED despite the measured-negative OOS edge (−0.071R, model
+  # AUC 0.479). The other breakers below (daily-loss, losing-streak, portfolio
+  # caps, free-margin, kill switch) remain ON. Set back to true to re-arm.
+  require_validated_edge: false
   # ---- adaptive sizing ----
   adaptive_sizing_mode: none              # none | volatility_target | kelly
   volatility_target_atr_percentile: 50    # median ATR used as neutral anchor
@@ -106,9 +106,9 @@ streaming:
   enabled: false
 
 execution:
-  mode: paper               # paper | live  (live ALSO requires ALLOW_LIVE_TRADING=true in .env)
-  testnet: true             # live orders go to Bybit testnet...
-  allow_mainnet: false      # ...unless testnet=false AND allow_mainnet=true
+  mode: live                # paper | live  (live ALSO requires ALLOW_LIVE_TRADING=true in .env)
+  testnet: true             # live orders go to Bybit TESTNET (fake money) by default...
+  allow_mainnet: false      # ...unless testnet=false AND allow_mainnet=true (MAINNET = real money)
 
 calibration:
   # Written by backtest.py. Maps setup name (optionally "|regime|tf") -> win rate.
