@@ -170,6 +170,36 @@ def test_reconcile_closed_keeps_streak_when_pnl_unknown(tmp_path):
     assert "SOL/USDT:USDT" not in exe._tracked    # still untracked
 
 
+def _foreign_pos(symbol, margin=30.0):
+    """A position NOT opened by the bot (e.g. a manual trade on the account)."""
+    return {"symbol": symbol, "contracts": 1.0, "side": "short",
+            "entryPrice": 100.0, "leverage": 3, "initialMargin": margin,
+            "unrealizedPnl": 0.0, "datetime": "2026-07-01T00:00:00Z", "id": symbol}
+
+
+def test_manual_positions_do_not_starve_the_bot(tmp_path):
+    # 4 manual shorts (~120 margin) exist; the bot has 33 free. A NEW symbol must
+    # still clear the portfolio caps (the bot's OWN book is empty) and reach the
+    # freshness check -> the manual positions no longer block the bot's trade.
+    foreign = [_foreign_pos(s) for s in
+               ("MU/USDT:USDT", "XLM/USDT:USDT", "HYPE/USDT:USDT", "INTC/USDT:USDT")]
+    exe, ex = _mk_exec(tmp_path, free=33.0, total=120.0, positions=foreign)
+    _stale_ohlcv(ex)                     # fail-safe AFTER caps + free gate pass
+    assert exe.open_position(_plan(15.0)) is None
+    ex.fetch_ohlcv.assert_called()       # got past portfolio caps + free preflight
+    ex.create_order.assert_not_called()
+
+
+def test_bot_never_stacks_on_an_existing_symbol(tmp_path):
+    # A position already exists on the bot's target symbol (BTC) -> one-per-symbol
+    # guard blocks BEFORE the freshness check, regardless of whose position it is.
+    exe, ex = _mk_exec(tmp_path, free=100.0, total=120.0,
+                       positions=[_foreign_pos("BTC/USDT:USDT")])
+    assert exe.open_position(_plan(15.0)) is None
+    ex.fetch_ohlcv.assert_not_called()   # blocked at one-per-symbol
+    ex.create_order.assert_not_called()
+
+
 def test_reconcile_closed_ignores_still_open(tmp_path):
     exe, ex = _mk_exec(tmp_path, free=100.0)
     exe._tracked = {"BTC/USDT:USDT": {}}

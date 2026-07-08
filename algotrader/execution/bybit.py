@@ -255,7 +255,19 @@ class BybitExecutor(Executor):
                                              "reason": f"edge catch: {edge_why}"})
                 return None
 
-        ok, why = portfolio_allows(self.cfg, self.open_positions(), plan, equity)
+        # Positions on the exchange may include MANUAL trades on this account.
+        # Never stack onto a symbol that already holds ANY position (manual or
+        # bot) — that would double exposure or fight a manual trade.
+        all_positions = self.open_positions()
+        if any(p.symbol == plan.symbol for p in all_positions):
+            log.info("LIVE entry skipped: already holding a %s position", plan.symbol)
+            return None
+        # Apply the portfolio caps (concurrency / margin% / risk%) to the bot's
+        # OWN book only, so foreign manual positions do not consume the bot's
+        # allocation. The free-margin preflight below is the account-level guard
+        # that keeps new exposure within the actually-available balance.
+        own = [p for p in all_positions if p.symbol in self._tracked]
+        ok, why = portfolio_allows(self.cfg, own, plan, equity)
         if not ok:
             log.info("LIVE entry skipped: %s", why)
             return None

@@ -1,6 +1,16 @@
 """Shared test configuration and helpers."""
 from __future__ import annotations
 
+import os
+
+# SAFETY: the repo config + .env may be armed for LIVE mainnet trading. Force the
+# live-trading master switch OFF for the whole test session BEFORE anything
+# imports algotrader.config (whose load_dotenv() would otherwise pull
+# ALLOW_LIVE_TRADING=true from .env). With this off, BybitExecutor.from_config
+# refuses and the server runs paper — so the test suite never authenticates,
+# touches the real Bybit account, or places an order. Affects only this process.
+os.environ["ALLOW_LIVE_TRADING"] = "false"
+
 import sys
 from pathlib import Path
 
