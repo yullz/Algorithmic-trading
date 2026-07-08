@@ -451,6 +451,20 @@ class BybitExecutor(Executor):
 
         # ---- live trade-selection filters (measured bleed-reducers). Paper and
         # the backtest still take these segments so calibration keeps learning.
+        # Quality floor: only take the BEST setups live (never open a marginal
+        # one just because margin is free).
+        min_conf = float(getattr(self.cfg, "min_live_confidence", 0.0) or 0.0)
+        min_ev = float(getattr(self.cfg, "min_live_ev_r", 0.0) or 0.0)
+        if (min_conf > 0 and plan.confidence < min_conf) or \
+                (min_ev > 0 and plan.expected_value_r < min_ev):
+            log.info("LIVE entry skipped: %s below quality floor (conf %.2f<%.2f "
+                     "or EV %.3f<%.3f)", symbol, plan.confidence, min_conf,
+                     plan.expected_value_r, min_ev)
+            audit("live_entry_skipped", {"symbol": symbol,
+                                         "reason": "below quality floor",
+                                         "confidence": round(plan.confidence, 3),
+                                         "ev_r": round(plan.expected_value_r, 3)})
+            return None
         if plan.regime and plan.regime in tuple(getattr(self.cfg, "live_blocked_regimes", ()) or ()):
             log.info("LIVE entry skipped: %s regime '%s' is live-blocked",
                      symbol, plan.regime)

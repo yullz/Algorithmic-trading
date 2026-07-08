@@ -77,6 +77,11 @@ risk:
   entry_slippage_cap_pct: 0.0015
   # Skip an entry whose side would PAY funding above this per-interval rate.
   max_entry_funding_rate: 0.0005
+  # ---- live quality floor: "only take the best trades" (owner-approved) ----
+  # A hard bar for LIVE entries so the bot never opens a marginal setup just
+  # because margin is free. Paper + backtest still take everything.
+  min_live_confidence: 0.65
+  min_live_ev_r: 0.15
   # ---- live trade-selection filters (measured bleed-reducers; owner-approved) ----
   # These setups are never taken LIVE (paper + backtest still measure them so the
   # calibration keeps learning). Empirically the worst OOS segments.

@@ -461,3 +461,17 @@ def test_live_position_carries_risk_snapshot(tmp_path):
     exe, _ = _mk_exec(tmp_path, free=100.0, positions=[pos])
     raw = exe._fetch_positions_raw()
     assert raw[0].plan["risk_amount"] == pytest.approx(4.0)    # 2 * |100-98|
+
+
+def test_open_skips_below_confidence_floor(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe.cfg.min_live_confidence = 0.65        # _plan confidence is 0.60
+    assert exe.open_position(_plan(15.0)) is None
+    ex.create_order.assert_not_called()
+
+
+def test_open_skips_below_ev_floor(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe.cfg.min_live_ev_r = 5.0               # unreachably high EV bar
+    assert exe.open_position(_plan(15.0)) is None
+    ex.create_order.assert_not_called()

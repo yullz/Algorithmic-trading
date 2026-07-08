@@ -165,6 +165,11 @@ class RiskConfig:
     # (5bp/8h default). 0 disables the funding tilt.
     max_entry_funding_rate: float = 0.0005
     # ---- live trade-selection filters (measured bleed-reducers) ----
+    # "Only take the best trades": a HARD quality floor for LIVE entries, so the
+    # bot never opens a marginal setup just because margin is free. Paper + the
+    # backtest still take everything (calibration keeps learning). 0 disables.
+    min_live_confidence: float = 0.0     # skip live entries below this confidence
+    min_live_ev_r: float = 0.0           # skip live entries below this expected R
     # Setups in these regimes / of these kinds are never taken LIVE (paper and
     # the backtest still measure them so the calibration keeps learning).
     live_blocked_regimes: tuple = ("volatile",)
