@@ -200,6 +200,40 @@ def test_bot_never_stacks_on_an_existing_symbol(tmp_path):
     ex.create_order.assert_not_called()
 
 
+def test_restart_restores_tracked_positions_for_caps(tmp_path):
+    # Simulate a restart: the bot previously opened ETH; the persisted state must
+    # restore it so the concurrency cap still counts the bot's own position and
+    # does NOT reset to an empty book (the money-safety bug the review caught).
+    os.makedirs(os.path.join(tmp_path, "reports"), exist_ok=True)
+    with open(os.path.join(tmp_path, "reports", "live_state.json"), "w") as f:
+        json.dump({"consecutive_losses": 0, "day_anchor": {"date": "", "equity": 1000},
+                   "tracked_symbols": ["ETH/USDT:USDT"]}, f)
+    with patch("ccxt.bybit") as mk:
+        ex = MagicMock()
+        ex.fetch_balance.return_value = {"USDT": {"free": 100.0, "total": 100.0}}
+        ex.fetch_positions.return_value = [_foreign_pos("ETH/USDT:USDT")]  # still open
+        mk.return_value = ex
+        from algotrader.execution.bybit import BybitExecutor
+        exe = BybitExecutor(
+            RiskConfig(fixed_margin_usdt=15.0, require_validated_edge=False,
+                       max_concurrent_positions=1),
+            "k", "s", testnet=True, root=str(tmp_path))
+    assert "ETH/USDT:USDT" in exe._tracked         # restored across the "restart"
+    # cap is 1 and the restored ETH counts -> a new BTC trade must be blocked.
+    assert exe.open_position(_plan(15.0)) is None   # _plan is on BTC/USDT:USDT
+    ex.create_order.assert_not_called()
+
+
+def test_open_persists_tracked_symbols(tmp_path):
+    # _save_state must write tracked_symbols so a crash right after opening still
+    # remembers the position for the caps.
+    exe, _ = _mk_exec(tmp_path, free=100.0)
+    exe._tracked["SOL/USDT:USDT"] = {"plan": None}
+    exe._save_state()
+    with open(os.path.join(tmp_path, "reports", "live_state.json")) as f:
+        assert "SOL/USDT:USDT" in json.load(f)["tracked_symbols"]
+
+
 def test_reconcile_closed_ignores_still_open(tmp_path):
     exe, ex = _mk_exec(tmp_path, free=100.0)
     exe._tracked = {"BTC/USDT:USDT": {}}

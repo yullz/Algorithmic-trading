@@ -83,8 +83,17 @@ class BybitExecutor(Executor):
         try:
             self.consecutive_losses = int(s.get("consecutive_losses", 0))
             self.day_anchor = dict(s.get("day_anchor", self.day_anchor))
-            log.info("restored live breaker state: streak=%d, day_anchor=%s",
-                     self.consecutive_losses, self.day_anchor)
+            # Restore the set of symbols the bot itself opened, so the portfolio
+            # caps still count the bot's OWN pre-restart positions (own-book
+            # accounting must survive a process bounce, or a restart silently
+            # resets concurrency/risk to zero and lets it over-concentrate). Only
+            # the symbols are kept — the full plan (TP ladder / breakeven state) is
+            # not; those positions stay protected by their exchange-side SL/TP.
+            for sym in (s.get("tracked_symbols") or []):
+                self._tracked.setdefault(str(sym), {})
+            log.info("restored live breaker state: streak=%d, day_anchor=%s, "
+                     "tracked=%d symbols", self.consecutive_losses,
+                     self.day_anchor, len(self._tracked))
         except (TypeError, ValueError) as e:
             log.warning("live breaker state unreadable (%s) — starting fresh", e)
 
@@ -92,6 +101,7 @@ class BybitExecutor(Executor):
         write_json(self.state_path, {
             "consecutive_losses": self.consecutive_losses,
             "day_anchor": self.day_anchor,
+            "tracked_symbols": list(self._tracked.keys()),
             "updated_at": utcnow_iso(),
         })
 
@@ -370,7 +380,8 @@ class BybitExecutor(Executor):
                     for tp in plan.take_profits],
             "breakeven_moved": False,
         }
-        self.sync_take_profits(symbol)
+        self._save_state()   # persist the new tracked symbol so a restart still
+        self.sync_take_profits(symbol)   # counts it in the portfolio caps
         return entry_id
 
     def close_position(self, pos_id: str, price: float, reason: str) -> None:
@@ -391,13 +402,16 @@ class BybitExecutor(Executor):
                 audit("live_close_failed", {"symbol": p.symbol, "error": str(e)})
             finally:
                 self._tracked.pop(p.symbol, None)
+                self._save_state()
 
     def sync_take_profits(self, symbol: str) -> None:
         """Poll closed orders, mark filled TP rungs, and move stop to breakeven
         once the first TP rung fills. Safe to call repeatedly.
         """
         state = self._tracked.get(symbol)
-        if state is None:
+        if not state or "plan" not in state:
+            # Unknown or restored-after-restart marker (no plan) — nothing to
+            # manage here; the position stays protected by its exchange SL/TP.
             return
         plan: TradePlan = state["plan"]
         if not plan.take_profits:
@@ -477,8 +491,11 @@ class BybitExecutor(Executor):
         time-stop, or a manual close) and feed the losing-streak breaker with
         each one's realized win/loss — the guard is otherwise inert live because
         the exchange closes positions without a local callback."""
-        for symbol in set(prev_symbols) - set(open_symbols):
+        closed = set(prev_symbols) - set(open_symbols)
+        for symbol in closed:
             win = self._closed_pnl_win(symbol)
             if win is not None:
-                self.record_trade_result(win)
+                self.record_trade_result(win)   # persists state
             self._tracked.pop(symbol, None)
+        if closed:
+            self._save_state()   # keep the persisted tracked set current
