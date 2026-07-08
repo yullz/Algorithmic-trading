@@ -36,7 +36,11 @@ risk:
   slippage_pct: 0.0005
   maintenance_margin_rate: 0.005
   max_margin_alloc_pct: 0.20
-  min_reward_risk: 1.0      # expected win must be >= expected loss (realistic, not ladder best-case)
+  # OWNER OVERRIDE (2026-07-08): lowered 1.0 -> 0.8 so setups trade despite the
+  # honest calibration's negative skew (avg win 0.886R < avg loss 1.039R => R:R
+  # 0.85). These setups are positive-EV per calibration but that calibration does
+  # NOT hold out-of-sample (model AUC 0.479) — trading the accepted negative edge.
+  min_reward_risk: 0.8
   atr_stop_mult: 1.5
   max_stop_atr_mult: 3.0    # stop distance hard cap (ATR multiples)
   tp_r_multiples: [1.0, 2.0, 3.0]
