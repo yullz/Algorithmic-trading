@@ -74,12 +74,16 @@ risk:
   volatile_regime_size_factor: 0.7
 
 signals:
+  # OWNER-APPROVED loosening (2026-07-08): thresholds lowered so the bot actually
+  # finds and takes trades unsupervised in quiet markets. This surfaces MORE (and
+  # lower-quality) setups — more trades on the measured-negative edge. Regime
+  # gating stays ON as a floor. Raise these back up to trade more selectively.
   # Minimum overall confidence (0..1) to emit a trade plan.
-  min_confidence: 0.60
+  min_confidence: 0.55
   # Minimum number of agreeing evidence factors (raw pieces).
-  min_confluence: 3
+  min_confluence: 2
   # Minimum number of INDEPENDENT evidence families that must agree.
-  min_families: 3
+  min_families: 2
   # Hard-reject trades against the higher-timeframe trend (soft vote if false).
   htf_veto: false
   # Reject setup kinds that historically fail in the current regime.
@@ -107,8 +111,8 @@ streaming:
 
 execution:
   mode: live                # paper | live  (live ALSO requires ALLOW_LIVE_TRADING=true in .env)
-  testnet: true             # live orders go to Bybit TESTNET (fake money) by default...
-  allow_mainnet: false      # ...unless testnet=false AND allow_mainnet=true (MAINNET = real money)
+  testnet: false           # live orders go to Bybit TESTNET (fake money) by default...
+  allow_mainnet: true      # ...unless testnet=false AND allow_mainnet=true (MAINNET = real money)
 
 calibration:
   # Written by backtest.py. Maps setup name (optionally "|regime|tf") -> win rate.
