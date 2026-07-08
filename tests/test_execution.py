@@ -73,7 +73,19 @@ def _fake_bybit(closed_orders=None, positions=None):
     ex.fetch_positions.return_value = positions or []
     ex.set_leverage.return_value = None
     ex.price_to_precision.side_effect = lambda _s, p: f"{p:.2f}"
-    ex.create_order.return_value = {"id": "order1"}
+    # IOC entry fills fully by default; TP legs also "order1".
+    ex.create_order.return_value = {"id": "order1", "filled": 1.0}
+    ex.fetch_order.return_value = {"id": "order1", "filled": 1.0}
+    # Order-size preflight: a symbol with a tiny step so plan.qty passes cleanly.
+    ex.market.return_value = {
+        "limits": {"amount": {"min": 0.001}},
+        "precision": {"amount": 0.001},
+        "info": {"lotSizeFilter": {"minNotionalValue": "5"}},
+    }
+    ex.amount_to_precision.side_effect = lambda _s, q: f"{float(q):.3f}"
+    # Microstructure preflight: tight spread, benign funding.
+    ex.fetch_ticker.return_value = {"bid": 99.95, "ask": 100.05,
+                                    "info": {"fundingRate": "0.00001"}}
 
     now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     ex.fetch_ohlcv.return_value = [
@@ -92,7 +104,7 @@ def _fake_bybit(closed_orders=None, positions=None):
     return fake_ccxt, ex
 
 
-def test_bybit_rejects_stale_candle(monkeypatch):
+def test_bybit_rejects_stale_candle(monkeypatch, tmp_path):
     fake_ccxt, ex = _fake_bybit()
     ex.fetch_ohlcv.return_value = [
         [0, 99.0, 101.0, 98.0, 100.0, 1000.0],
@@ -103,17 +115,19 @@ def test_bybit_rejects_stale_candle(monkeypatch):
     ]
     monkeypatch.setitem(sys.modules, "ccxt", fake_ccxt)
 
-    exe = BybitExecutor(RiskConfig(), "key", "secret", testnet=True)
+    exe = BybitExecutor(RiskConfig(require_validated_edge=False), "key", "secret",
+                        testnet=True, root=str(tmp_path))
     plan = _plan(leverage=2.0, entry=100.0, stop=50.0)
     assert exe.open_position(plan) is None
     ex.create_order.assert_not_called()
 
 
-def test_bybit_rejects_unsafe_ceiling_leverage(monkeypatch):
+def test_bybit_rejects_unsafe_ceiling_leverage(monkeypatch, tmp_path):
     fake_ccxt, ex = _fake_bybit()
     monkeypatch.setitem(sys.modules, "ccxt", fake_ccxt)
 
-    exe = BybitExecutor(RiskConfig(), "key", "secret", testnet=True)
+    exe = BybitExecutor(RiskConfig(require_validated_edge=False), "key", "secret",
+                        testnet=True, root=str(tmp_path))
     # leverage=1.5 -> ceil=2, but safe ceiling for a 50% stop is <2
     plan = _plan(leverage=1.5, entry=100.0, stop=50.0)
     assert exe.open_position(plan) is None
@@ -121,11 +135,12 @@ def test_bybit_rejects_unsafe_ceiling_leverage(monkeypatch):
     ex.create_order.assert_not_called()
 
 
-def test_bybit_moves_stop_to_breakeven_after_tp1(monkeypatch):
+def test_bybit_moves_stop_to_breakeven_after_tp1(monkeypatch, tmp_path):
     fake_ccxt, ex = _fake_bybit()
     monkeypatch.setitem(sys.modules, "ccxt", fake_ccxt)
 
-    exe = BybitExecutor(RiskConfig(), "key", "secret", testnet=True)
+    exe = BybitExecutor(RiskConfig(require_validated_edge=False), "key", "secret",
+                        testnet=True, root=str(tmp_path))
     plan = _plan(
         leverage=2.0, entry=100.0, stop=99.0,
         tps=[MagicMock(price=101.0, r_multiple=1.0, allocation=0.4)],
@@ -143,7 +158,7 @@ def test_bybit_moves_stop_to_breakeven_after_tp1(monkeypatch):
     assert float(call_args["stopLoss"]) == pytest.approx(plan.entry)
 
 
-def test_bybit_tracked_state_cleared_on_close(monkeypatch):
+def test_bybit_tracked_state_cleared_on_close(monkeypatch, tmp_path):
     fake_ccxt, ex = _fake_bybit(positions=[{
         "symbol": "BTC/USDT:USDT",
         "contracts": 1.0,
@@ -157,7 +172,8 @@ def test_bybit_tracked_state_cleared_on_close(monkeypatch):
     }])
     monkeypatch.setitem(sys.modules, "ccxt", fake_ccxt)
 
-    exe = BybitExecutor(RiskConfig(), "key", "secret", testnet=True)
+    exe = BybitExecutor(RiskConfig(require_validated_edge=False), "key", "secret",
+                        testnet=True, root=str(tmp_path))
     exe._tracked["BTC/USDT:USDT"] = {"entry_id": "order1"}
     exe.close_position("BTC/USDT:USDT", 100.0, "test")
     assert "BTC/USDT:USDT" not in exe._tracked

@@ -8,9 +8,10 @@ They lock two money-critical rules:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +36,19 @@ def _mk_exec(tmp_path, free, total=None, positions=None, require_edge=False):
         ex = MagicMock()
         ex.fetch_balance.return_value = {"USDT": {"free": free, "total": total}}
         ex.fetch_positions.return_value = positions or []
+        # order-size preflight + microstructure preflight mocks (tiny step so any
+        # plan.qty clears; tight spread; benign funding; full IOC fill).
+        ex.market.return_value = {
+            "limits": {"amount": {"min": 0.001}},
+            "precision": {"amount": 0.001},
+            "info": {"lotSizeFilter": {"minNotionalValue": "5"}},
+        }
+        ex.amount_to_precision.side_effect = lambda _s, q: f"{float(q):.6f}"
+        ex.price_to_precision.side_effect = lambda _s, p: f"{float(p):.6f}"
+        ex.fetch_ticker.return_value = {"bid": 99.9, "ask": 100.1,
+                                        "info": {"fundingRate": "0.00001"}}
+        ex.create_order.return_value = {"id": "o", "filled": 0.45}
+        ex.fetch_order.return_value = {"id": "o", "filled": 0.45}
         mk.return_value = ex
         from algotrader.execution.bybit import BybitExecutor
         exe = BybitExecutor(
@@ -241,3 +255,209 @@ def test_reconcile_closed_ignores_still_open(tmp_path):
     assert exe.consecutive_losses == 0
     ex.private_get_v5_position_closed_pnl.assert_not_called()
     assert "BTC/USDT:USDT" in exe._tracked
+
+
+# --------------------------------------------------------------------------- #
+# Tier 0-2: order-size preflight, TP ladder from real fill, filters, time-stop,
+# day-anchor poison discard.
+# --------------------------------------------------------------------------- #
+def _tp(price, r, alloc):
+    return MagicMock(price=price, r_multiple=r, allocation=alloc)
+
+
+def test_preflight_qty_rounds_and_passes(tmp_path):
+    exe, _ = _mk_exec(tmp_path, free=100.0)
+    assert exe._preflight_qty("BTC/USDT:USDT", _plan(15.0)) == pytest.approx(0.45, abs=1e-6)
+
+
+def test_preflight_qty_rejects_below_min(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.market.return_value = {"limits": {"amount": {"min": 1.0}},
+                              "precision": {"amount": 0.001}, "info": {}}
+    assert exe._preflight_qty("BTC/USDT:USDT", _plan(15.0)) is None   # 0.45 < 1.0
+
+
+def test_preflight_qty_rejects_excess_truncation(tmp_path):
+    import math
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.market.return_value = {"limits": {"amount": {"min": 0.1}},
+                              "precision": {"amount": 0.1}, "info": {}}
+    ex.amount_to_precision.side_effect = lambda _s, q: f"{math.floor(float(q) / 0.1) * 0.1:.4f}"
+    assert exe._preflight_qty("BTC/USDT:USDT", _plan(15.0)) is None   # 0.45 -> 0.4 = 11%
+
+
+def test_preflight_qty_invalidorder_is_skip(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.amount_to_precision.side_effect = Exception("below minimum amount precision")
+    assert exe._preflight_qty("BTC/USDT:USDT", _plan(15.0)) is None
+
+
+def test_build_tp_legs_sums_to_fill(tmp_path):
+    exe, _ = _mk_exec(tmp_path, free=100.0)
+    legs = exe._build_tp_legs("BTC/USDT:USDT", 1.0,
+                              [_tp(101, 1, 0.4), _tp(102, 2, 0.35), _tp(103, 3, 0.25)])
+    assert len(legs) == 3
+    assert sum(q for _, _, q in legs) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_build_tp_legs_merges_submin_rung(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.market.return_value = {"limits": {"amount": {"min": 0.2}},
+                              "precision": {"amount": 0.1}, "info": {}}
+    # 0.5 fill, step 0.1 -> 5 steps, min 2 steps; the 1-step middle rung merges.
+    legs = exe._build_tp_legs("BTC/USDT:USDT", 0.5,
+                              [_tp(101, 1, 0.4), _tp(102, 2, 0.35), _tp(103, 3, 0.25)])
+    assert sum(q for _, _, q in legs) == pytest.approx(0.5, abs=1e-9)
+    assert all(q >= 0.2 - 1e-9 for _, _, q in legs)   # every placed leg clears min
+
+
+def test_build_tp_legs_tiny_fill_returns_empty(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.market.return_value = {"limits": {"amount": {"min": 0.1}},
+                              "precision": {"amount": 0.1}, "info": {}}
+    assert exe._build_tp_legs("BTC/USDT:USDT", 0.05, [_tp(101, 1, 1.0)]) == []
+
+
+def test_open_position_happy_path_is_ioc(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0, total=1000.0)
+    pid = exe.open_position(_plan(15.0))
+    assert pid == "o"
+    assert "BTC/USDT:USDT" in exe._tracked
+    entry = ex.create_order.call_args_list[0]
+    assert entry.args[1] == "limit"
+    assert entry.kwargs["params"]["timeInForce"] == "IOC"
+
+
+def test_open_skips_blocked_regime(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    plan = _plan(15.0); plan.regime = "volatile"
+    assert exe.open_position(plan) is None
+    ex.create_order.assert_not_called()
+
+
+def test_open_skips_blocked_setup(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    plan = _plan(15.0); plan.kind = "reversal"
+    assert exe.open_position(plan) is None
+    ex.create_order.assert_not_called()
+
+
+def test_open_skips_when_tf_budget_full(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe.cfg.live_tf_budget = {"15m": 0.2}   # max_concurrent 6 -> 1 slot
+    exe._tracked["ETH/USDT:USDT"] = {"tf": "15m"}
+    plan = _plan(15.0); plan.timeframe = "15m"
+    assert exe.open_position(plan) is None
+    ex.create_order.assert_not_called()
+
+
+def test_open_skips_on_cooldown(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    exe._cooldown["BTC/USDT:USDT"] = datetime.now(timezone.utc).timestamp() + 3600
+    assert exe.open_position(_plan(15.0)) is None
+    ex.create_order.assert_not_called()
+
+
+def test_open_skips_wide_spread(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.fetch_ticker.return_value = {"bid": 99.0, "ask": 101.0, "info": {"fundingRate": "0"}}
+    assert exe.open_position(_plan(15.0)) is None
+    ex.create_order.assert_not_called()
+
+
+def test_open_skips_paying_extreme_funding(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.fetch_ticker.return_value = {"bid": 99.95, "ask": 100.05, "info": {"fundingRate": "0.01"}}
+    assert exe.open_position(_plan(15.0)) is None   # LONG paying +1% > 0.05% cap
+    ex.create_order.assert_not_called()
+
+
+def test_open_skips_ioc_unfilled(tmp_path):
+    exe, ex = _mk_exec(tmp_path, free=100.0)
+    ex.create_order.return_value = {"id": "o", "filled": 0.0}
+    ex.fetch_order.return_value = {"id": "o", "filled": 0.0}
+    assert exe.open_position(_plan(15.0)) is None   # nothing filled -> skip
+
+
+def test_time_stop_closes_tracked_expired_once(tmp_path):
+    old = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    pos = _foreign_pos("BTC/USDT:USDT"); pos["datetime"] = old
+    exe, ex = _mk_exec(tmp_path, free=100.0, positions=[pos])
+    exe._tracked["BTC/USDT:USDT"] = {"tf": "1h", "time_stop": 1, "opened_at": old}
+    out = exe.open_positions()
+    assert ex.create_order.called                         # closed
+    assert "BTC/USDT:USDT" not in [p.symbol for p in out]
+
+
+def test_time_stop_ignores_manual_position(tmp_path):
+    old = (datetime.now(timezone.utc) - timedelta(hours=100)).isoformat()
+    pos = _foreign_pos("XLM/USDT:USDT"); pos["datetime"] = old
+    exe, ex = _mk_exec(tmp_path, free=100.0, positions=[pos])   # NOT tracked -> manual
+    out = exe.open_positions()
+    assert "XLM/USDT:USDT" in [p.symbol for p in out]
+    ex.create_order.assert_not_called()
+
+
+def test_foreign_stamped_state_discards_poison_keeps_tracked(tmp_path):
+    # A DIFFERENT account's stamp -> its anchor/streak are foreign poison and are
+    # dropped; tracked positions are still restored (they self-correct).
+    os.makedirs(os.path.join(tmp_path, "reports"), exist_ok=True)
+    with open(os.path.join(tmp_path, "reports", "live_state.json"), "w") as f:
+        json.dump({"account": "deadbeef0000", "consecutive_losses": 4,
+                   "day_anchor": {"date": "2026-07-08", "equity": 1000.0},
+                   "tracked_symbols": ["BTC/USDT:USDT"]}, f)
+    exe, _ = _mk_exec(tmp_path, free=120.0, total=120.0)
+    assert exe.day_anchor["date"] == ""            # foreign anchor discarded
+    assert exe.consecutive_losses == 0             # foreign streak discarded
+    assert "BTC/USDT:USDT" in exe._tracked          # tracked restored (self-corrects)
+
+
+def test_legacy_unstamped_state_is_trusted(tmp_path):
+    # A present-but-UNSTAMPED file is OUR OWN legacy state (prior version wrote no
+    # stamp) — trust it, or the upgrade would disarm both live breakers.
+    os.makedirs(os.path.join(tmp_path, "reports"), exist_ok=True)
+    with open(os.path.join(tmp_path, "reports", "live_state.json"), "w") as f:
+        json.dump({"consecutive_losses": 4,
+                   "day_anchor": {"date": "2026-07-08", "equity": 117.0},
+                   "tracked_symbols": ["BTC/USDT:USDT"]}, f)     # no 'account'
+    exe, _ = _mk_exec(tmp_path, free=120.0, total=120.0)
+    assert exe.consecutive_losses == 4             # streak PRESERVED across upgrade
+    assert exe.day_anchor["equity"] == 117.0       # anchor PRESERVED
+    assert "BTC/USDT:USDT" in exe._tracked
+
+
+def test_stamped_state_restores_anchor_and_streak(tmp_path):
+    fp = hashlib.sha256(b"k|testnet").hexdigest()[:12]
+    os.makedirs(os.path.join(tmp_path, "reports"), exist_ok=True)
+    with open(os.path.join(tmp_path, "reports", "live_state.json"), "w") as f:
+        json.dump({"account": fp, "consecutive_losses": 3,
+                   "day_anchor": {"date": "2026-07-08", "equity": 117.0},
+                   "tracked": {"BTC/USDT:USDT": {"tf": "1h"}}}, f)
+    exe, _ = _mk_exec(tmp_path, free=120.0)
+    assert exe.consecutive_losses == 3             # trusted (stamp matches)
+    assert exe.day_anchor["equity"] == 117.0
+    assert exe._tracked["BTC/USDT:USDT"]["tf"] == "1h"
+
+
+def test_failed_time_stop_close_keeps_position(tmp_path):
+    # A transient close failure must NOT orphan the position: it stays in the
+    # book (so reconcile won't phantom-close it) and stays tracked (so the
+    # time-stop retries next loop).
+    old = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    pos = _foreign_pos("BTC/USDT:USDT"); pos["datetime"] = old
+    exe, ex = _mk_exec(tmp_path, free=100.0, positions=[pos])
+    exe._tracked["BTC/USDT:USDT"] = {"tf": "1h", "time_stop": 1, "opened_at": old}
+    ex.create_order.side_effect = Exception("rate limit")     # close fails
+    out = exe.open_positions()
+    assert "BTC/USDT:USDT" in [p.symbol for p in out]          # still in the book
+    assert "BTC/USDT:USDT" in exe._tracked                     # still tracked -> retries
+
+
+def test_live_position_carries_risk_snapshot(tmp_path):
+    # portfolio_allows' open-risk cap needs a per-position risk; live positions
+    # must expose qty*|entry-stop| via .plan (else every live pos counts 0).
+    pos = _foreign_pos("BTC/USDT:USDT")
+    pos["entryPrice"] = 100.0; pos["stopLossPrice"] = 98.0; pos["contracts"] = 2.0
+    exe, _ = _mk_exec(tmp_path, free=100.0, positions=[pos])
+    raw = exe._fetch_positions_raw()
+    assert raw[0].plan["risk_amount"] == pytest.approx(4.0)    # 2 * |100-98|

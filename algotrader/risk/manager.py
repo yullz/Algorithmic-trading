@@ -243,6 +243,7 @@ class RiskManager:
             rationale=rationale, explanation=explanation, warnings=warnings,
             created_at=utcnow_iso(),
             regime=getattr(sig, "regime", ""),
+            kind=str(getattr(getattr(sig, "kind", ""), "value", getattr(sig, "kind", "")) or ""),
             families=list(getattr(sig, "families", []) or []),
             ml_prob=getattr(sig, "ml_prob", None),
             ml_weight=getattr(sig, "ml_weight", 0.0),

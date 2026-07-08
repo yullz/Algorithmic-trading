@@ -47,6 +47,9 @@ live_executor = None
 scanner: Scanner | None = None
 last_scan: dict = read_json("reports/last_scan.json")
 _seen_candle: dict[str, str] = {}
+# Last live position snapshot from _manage_live — read endpoints serve this so
+# every dashboard request doesn't hit the exchange REST API.
+_last_live_positions: list = []
 _sockets: set[WebSocket] = set()
 
 # Historical persistence
@@ -230,8 +233,11 @@ def _manage_live(live_exec) -> list:
     breakeven after TP1 or honor the time-stop — so those must be driven here.
     open_positions() syncs from the exchange and auto-closes time-expired
     positions; sync_take_profits() performs the breakeven move; reconcile_closed
-    feeds the losing-streak breaker with the win/loss of anything that closed.
-    Returns the current open live positions (for the dashboard broadcast)."""
+    feeds the losing-streak breaker with the win/loss of anything that closed
+    and returns the closes so they are JOURNALED (otherwise live trades stay
+    'open' in history forever). Returns the current open live positions (for
+    the dashboard broadcast)."""
+    global _last_live_positions
     # Snapshot tracked symbols BEFORE open_positions() (which may close+untrack
     # time-expired positions) so close reconciliation still sees them.
     prev = set(getattr(live_exec, "_tracked", {}).keys())
@@ -242,14 +248,28 @@ def _manage_live(live_exec) -> list:
         return []
     open_symbols = {p.symbol for p in positions}
     try:
-        live_exec.reconcile_closed(prev, open_symbols)   # advance streak breaker
+        closes = live_exec.reconcile_closed(prev, open_symbols)  # streak breaker
     except Exception as e:
         log.warning("live close reconciliation failed: %s", e)
+        closes = []
+    for c in closes:  # journal live closes so history/analytics stay truthful
+        trade_id = _trade_id_by_pos.get(c.get("entry_id") or "")
+        if trade_id is None:
+            continue
+        outcome = {True: "win", False: "loss"}.get(c.get("win"), "closed")
+        try:
+            history.update_position(
+                trade_id=trade_id, symbol=c["symbol"], side="",
+                opened_at="", closed_at=utcnow_iso(), status="closed",
+                mtm_pnl=0.0, outcome=outcome)
+        except Exception as e:
+            log.warning("failed to journal live close %s: %s", c["symbol"], e)
     for pos in positions:
         try:
             live_exec.sync_take_profits(pos.symbol)
         except Exception as e:
             log.warning("live TP/breakeven sync failed for %s: %s", pos.symbol, e)
+    _last_live_positions = positions
     return positions
 
 
@@ -545,14 +565,19 @@ def api_signals():
 
 @app.get("/api/positions")
 def api_positions():
+    # When live-trading, the dashboard must show the LIVE book — not the idle
+    # paper one. Served from the loop's cached snapshot (no REST per request).
+    if live_executor is not None:
+        return _live_state_dict(live_executor, _last_live_positions)
     return executor.state_dict()
 
 
 @app.get("/api/exposure")
 async def api_exposure():
-    corr = await _correlation_matrix_for(executor.open_positions())
-    return ExposureAnalyzer.analyze(
-        executor.open_positions(), correlation_matrix=corr)
+    positions = (_last_live_positions if live_executor is not None
+                 else executor.open_positions())
+    corr = await _correlation_matrix_for(positions)
+    return ExposureAnalyzer.analyze(positions, correlation_matrix=corr)
 
 
 @app.get("/api/backtest")
@@ -701,16 +726,18 @@ def api_health():
     except OSError:
         pass
 
-    # Circuit breakers.
-    day_start = executor.day_anchor.get("equity", executor.cfg.account_equity)
-    mtm = executor.mtm_equity()
+    # Circuit breakers — read from the LIVE executor when trading live, so the
+    # dashboard reflects the real day-loss anchor / streak, not the idle paper one.
+    brk_exec = live_executor or executor
+    day_start = brk_exec.day_anchor.get("equity", brk_exec.cfg.account_equity)
+    mtm = brk_exec.equity() if live_executor is not None else executor.mtm_equity()
     daily_dd = 1.0 - mtm / day_start if day_start > 0 else 0.0
     circuit_breakers = {
         "kill_switch": os.path.exists(os.path.join(ROOT, "STOP_TRADING")),
         "daily_loss_pct": round(daily_dd * 100, 2),
         "daily_loss_triggered": daily_dd >= cfg.risk.max_daily_loss_pct,
-        "consecutive_losses": executor.consecutive_losses,
-        "losing_streak_triggered": executor.consecutive_losses >= cfg.risk.max_consecutive_losses,
+        "consecutive_losses": brk_exec.consecutive_losses,
+        "losing_streak_triggered": brk_exec.consecutive_losses >= cfg.risk.max_consecutive_losses,
     }
 
     return {
@@ -884,9 +911,12 @@ async def ws_endpoint(ws: WebSocket):
         await ws.send_text(json.dumps(
             {"type": "hello",
              "data": {"signals": {**_EMPTY_SCAN, **(last_scan or {})},
-                      "positions": executor.state_dict(),
+                      "positions": (_live_state_dict(live_executor, _last_live_positions)
+                                    if live_executor is not None
+                                    else executor.state_dict()),
                       "exposure": ExposureAnalyzer.analyze(
-                          executor.open_positions())},
+                          _last_live_positions if live_executor is not None
+                          else executor.open_positions())},
              "ts": utcnow_iso()}, default=str))
         while True:
             await ws.receive_text()   # keepalive pings from the client

@@ -62,6 +62,29 @@ risk:
   # AUC 0.479). The other breakers below (daily-loss, losing-streak, portfolio
   # caps, free-margin, kill switch) remain ON. Set back to true to re-arm.
   require_validated_edge: false
+  # ---- live execution quality (see BybitExecutor.open_position) ----
+  # Reject an entry if step-truncating its qty to the exchange grid would change
+  # the size by more than this fraction (protects sizing integrity).
+  max_qty_truncation_pct: 0.10
+  # Skip entries when the bid-ask spread exceeds this many basis points.
+  max_spread_bps: 25.0
+  # Entry orders are IOC limits priced ref*(1±cap) — a market order with bounded
+  # slippage; an unfilled IOC is simply skipped (no chase).
+  entry_slippage_cap_pct: 0.0015
+  # Skip an entry whose side would PAY funding above this per-interval rate.
+  max_entry_funding_rate: 0.0005
+  # ---- live trade-selection filters (measured bleed-reducers; owner-approved) ----
+  # These setups are never taken LIVE (paper + backtest still measure them so the
+  # calibration keeps learning). Empirically the worst OOS segments.
+  live_blocked_regimes: ["volatile"]
+  live_blocked_setups: ["reversal"]
+  # 80/20: cap 15m trades at ~20% of the concurrent book (1h/4h get the rest),
+  # since 15m is the weakest timeframe but where most signals fire.
+  live_tf_budget: {"15m": 0.2}
+  # No re-entry into a symbol for this many bars (of its timeframe) after a
+  # LOSING close — stops re-entry churn in the same chop.
+  cooldown_bars_after_loss: 6
+  cooldown_fallback_minutes: 120
   # ---- adaptive sizing ----
   adaptive_sizing_mode: none              # none | volatility_target | kelly
   volatility_target_atr_percentile: 50    # median ATR used as neutral anchor

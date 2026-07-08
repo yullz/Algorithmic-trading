@@ -152,6 +152,31 @@ class RiskConfig:
     # this. Set false ONLY to deliberately override (you accept there is no
     # validated edge). Does not affect testnet vs mainnet — it gates BOTH.
     require_validated_edge: bool = True
+    # ---- live execution quality gates (BybitExecutor.open_position) ----
+    # Reject an entry when the entry qty's exchange-step truncation would change
+    # the intended size by more than this fraction (protects sizing integrity).
+    max_qty_truncation_pct: float = 0.10
+    # Skip entries when the bid-ask spread exceeds this many basis points.
+    max_spread_bps: float = 25.0
+    # Entries are IOC limit orders priced ref*(1±cap): bounds slippage; an
+    # unfilled IOC is simply skipped (no chase).
+    entry_slippage_cap_pct: float = 0.0015
+    # Skip entries whose side would PAY funding above this per-interval rate
+    # (5bp/8h default). 0 disables the funding tilt.
+    max_entry_funding_rate: float = 0.0005
+    # ---- live trade-selection filters (measured bleed-reducers) ----
+    # Setups in these regimes / of these kinds are never taken LIVE (paper and
+    # the backtest still measure them so the calibration keeps learning).
+    live_blocked_regimes: tuple = ("volatile",)
+    live_blocked_setups: tuple = ("reversal",)
+    # Per-timeframe share of max_concurrent_positions the live book may hold
+    # (e.g. {"15m": 0.2} = at most ~20% of slots in 15m trades; min 1 slot).
+    live_tf_budget: dict = field(default_factory=dict)
+    # Bars (of the closed trade's timeframe) to wait before re-entering a symbol
+    # after a LOSING close — stops re-entry churn in the same chop. 0 disables.
+    cooldown_bars_after_loss: int = 6
+    # Cooldown fallback when the closed position's timeframe is unknown.
+    cooldown_fallback_minutes: int = 120
     # ---- time stop ----
     max_trade_duration_candles: int = 0             # 0 = disabled
     # ---- regime-dependent sizing ----
@@ -210,6 +235,7 @@ class TradePlan:
     valid_until: str = ""           # signals decay; re-evaluate after this
     # signal context surfaced to the dashboard/API
     regime: str = ""
+    kind: str = ""                  # setup kind (breakout/reversal/...) for live filters
     families: list[str] = field(default_factory=list)
     ml_prob: Optional[float] = None
     ml_weight: float = 0.0
